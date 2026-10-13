@@ -1,0 +1,39 @@
+name: l10n-guard
+description: Check that translations keep their placeholders, markup, code blocks and links
+author: MV2 of Munim, Inc.
+branding:
+  icon: globe
+  color: blue
+inputs:
+  kind:
+    description: "html, md, json or po"
+    required: true
+  source:
+    description: "Source-language file (not used for po)"
+    required: false
+    default: ""
+  target:
+    description: "Translated file"
+    required: true
+  strict:
+    description: "Treat warnings as errors (true/false)"
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        L10N_KIND: ${{ inputs.kind }}
+        L10N_SOURCE: ${{ inputs.source }}
+        L10N_TARGET: ${{ inputs.target }}
+        L10N_STRICT: ${{ inputs.strict }}
+        L10N_SCRIPT: ${{ github.action_path }}/l10n_guard.py
+      run: |
+        args=()
+        if [ "$L10N_STRICT" = "true" ]; then args+=(--strict); fi
+        if [ "$L10N_KIND" = "po" ]; then
+          python3 "$L10N_SCRIPT" "${args[@]}" po "$L10N_TARGET"
+        else
+          python3 "$L10N_SCRIPT" "${args[@]}" "$L10N_KIND" "$L10N_SOURCE" "$L10N_TARGET"
+        fi

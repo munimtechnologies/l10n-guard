@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ollama が外部に公開されていないか確認する: OLLAMA_HOST・Docker のポート・Open WebUI の締め方（2026 年版チェックリスト）</title>
+<meta name="description" content="Ollama の API にはログインがありません。ほかのマシンから Ollama に届いてしまうかを確認し、塞ぎます。Linux・macOS・Windows での OLLAMA_HOST、Docker の -p 127.0.0.1、Open WebUI の裏で Ollama を内部に留める方法、Basic 認証や API キー付きの Caddy プロキシ、OLLAMA_ORIGINS、Open WebUI の新規登録設定。Munim, Inc. の MV2 による。">
+<link rel="canonical" href="https://munimv2.github.io/ja/secure-ollama.html">
+<link rel="alternate" hreflang="en" href="https://munimv2.github.io/secure-ollama.html">
+<link rel="alternate" hreflang="de" href="https://munimv2.github.io/de/secure-ollama.html">
+<link rel="alternate" hreflang="es" href="https://munimv2.github.io/es/secure-ollama.html">
+<link rel="alternate" hreflang="fr" href="https://munimv2.github.io/fr/secure-ollama.html">
+<link rel="alternate" hreflang="ja" href="https://munimv2.github.io/ja/secure-ollama.html">
+<link rel="alternate" hreflang="pt-BR" href="https://munimv2.github.io/pt-br/secure-ollama.html">
+<link rel="alternate" hreflang="x-default" href="https://munimv2.github.io/secure-ollama.html">
+<style>
+  body { font: 16px/1.7 system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", Meiryo, Segoe UI, Roboto, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1.2rem; color: #1b1b1b; background: #fff; }
+  h1 { font-size: 1.6rem; line-height: 1.35; }
+  h2 { font-size: 1.25rem; margin-top: 2rem; }
+  code, pre { font: 0.9rem/1.45 ui-monospace, Consolas, monospace; background: #f3f3f3; }
+  code { padding: 0 0.2rem; }
+  pre { padding: 0.7rem; overflow-x: auto; }
+  nav, .by { color: #555; }
+  footer { margin-top: 2.5rem; color: #555; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<nav><a href="../index.html">CVE チェッカー（英語）</a> · <strong>Ollama を締める</strong> · 言語: <a href="../secure-ollama.html" hreflang="en">English</a> · <a href="../de/secure-ollama.html" hreflang="de">Deutsch</a> · <a href="../es/secure-ollama.html" hreflang="es">Español</a> · <a href="../fr/secure-ollama.html" hreflang="fr">Français</a> · 日本語 · <a href="../pt-br/secure-ollama.html" hreflang="pt-BR">Português (Brasil)</a></nav>
+<h1>Ollama が外部に公開されていないか？ 締めるためのチェックリスト</h1>
+<p class="by">Munim, Inc. の MV2 による。設定は 2026 年 10 月 12 日に <a href="https://docs.ollama.com/faq">Ollama FAQ</a> と照合済み。ご自身のマシンにのみ使ってください。このページは<a href="../secure-ollama.html" hreflang="en">英語の原文</a>から AI で翻訳したものです。内容に食い違いがある場合は原文が優先します。</p>
+
+<p><strong>なぜ重要か:</strong> Ollama の API にはログインがありません。ポート 11434 に届く人なら誰でも、モデルの一覧表示・ダウンロード・作成・削除ができ、あなたの GPU を使え、今年の CVE が見つかったすべてのエンドポイントにアクセスできます（<a href="../ollama.html">Ollama の CVE（英語）</a>を参照）。Ollama は既定で <code>127.0.0.1:11434</code> にバインドされ、これは安全です。公開されてしまうのはたいてい後からで、別のマシンや Docker コンテナから接続するために <code>OLLAMA_HOST=0.0.0.0</code> を設定したとき（またはアプリの「Expose Ollama to the network」設定をオンにしたとき）、あるいは Docker がポートを公開したときです。</p>
+
+<h2>1. どこで待ち受けているかを確認する</h2>
+<ul>
+  <li><strong>Linux:</strong> <code>ss -tlnp | grep 11434</code></li>
+  <li><strong>macOS:</strong> <code>lsof -nP -iTCP:11434 -sTCP:LISTEN</code></li>
+  <li><strong>Windows:</strong> <code>netstat -ano | findstr :11434</code></li>
+  <li><strong>Docker:</strong> <code>docker ps --format "{{.Names}} {{.Ports}}"</code></li>
+</ul>
+<p><code>127.0.0.1:11434</code> と出れば、接続できるのはこのマシンだけです。このステップは完了です。<code>0.0.0.0:11434</code>、<code>*:11434</code>、<code>[::]:11434</code>、または <code>0.0.0.0:11434-&gt;11434/tcp</code> のような Docker のポートが出た場合は、ほかのマシンからも接続できます。確かめるには、ご自身の別の端末から <code>curl http://&lt;this machine's LAN IP&gt;:11434/api/version</code> を実行してください（このマシンの LAN 内 IP に置き換えます）。バージョン番号が返ってくれば、ポートはネットワークに開いています。</p>
+<p>無料のスクリプト <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> が、これらの確認を下記のバージョン・<code>OLLAMA_ORIGINS</code>・Docker ポートの確認とあわせて行います。読み取り専用で、マシンの外には何も送信しません。</p>
+
+<h2>2. このマシンだけで使う場合: localhost にバインドする</h2>
+<p><code>OLLAMA_HOST</code> を削除するか <code>127.0.0.1:11434</code> に設定し、アプリの設定で「Expose Ollama to the network」がオンならオフにします。</p>
+<ul>
+  <li><strong>Linux（systemd）:</strong> <code>sudo systemctl edit ollama.service</code> を実行し、<code>Environment="OLLAMA_HOST=0.0.0.0..."</code> の行があれば削除するか、<code>[Service]</code> の下に次のように設定します:
+<pre>[Service]
+Environment="OLLAMA_HOST=127.0.0.1:11434"</pre>
+  その後 <code>sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart ollama</code> を実行します。</li>
+  <li><strong>macOS（アプリ）:</strong> <code>launchctl setenv OLLAMA_HOST "127.0.0.1:11434"</code>（または <code>launchctl unsetenv OLLAMA_HOST</code>）を実行し、Ollama を終了してから開き直します。</li>
+  <li><strong>Windows:</strong> タスクバーから Ollama を終了します。「アカウントの環境変数を編集」を開いて <code>OLLAMA_HOST</code> を削除または変更し、スタートメニューから Ollama を再び起動します。</li>
+</ul>
+<p>Docker コンテナから接続するためだけに <code>OLLAMA_HOST=0.0.0.0</code> を設定したのなら、Ollama をネットワークに出さずに済む方法があります。<a href="../docker-ollama.html">Docker can't reach Ollama（英語）</a>を参照してください。ノート PC やスマートフォンから接続するために設定したのなら、<a href="../ollama-remote-access.html">別のコンピューターやスマートフォンから Ollama を使う（英語）</a>を参照してください。</p>
+
+<h2>3. Ollama を Docker で動かしている場合</h2>
+<p><code>-p 11434:11434</code> はすべてのインターフェースでポートを公開します。Linux では Docker が独自のファイアウォールルールを書き込むため、<strong>ufw や firewalld ではブロックされません</strong>。代わりに次のいずれかを使ってください:</p>
+<pre>docker run -d --gpus=all -v ollama:/root/.ollama -p 127.0.0.1:11434:11434 --name ollama ollama/ollama</pre>
+<p><strong>Open WebUI</strong>（または n8n、Dify、Flowise）が同じ Compose ファイルで動いているなら、Ollama にはポートの公開自体が不要です。もう一方のコンテナはサービス名で Ollama に届きます:</p>
+<pre>services:
+  ollama:
+    image: ollama/ollama
+    volumes: [ "ollama:/root/.ollama" ]
+    # no "ports:" here - only containers on this network can reach it
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    ports: [ "127.0.0.1:3000:8080" ]
+    volumes: [ "open-webui:/app/backend/data" ]
+volumes:
+  ollama: {}
+  open-webui: {}</pre>
+<p>（ファイル内のコメントは「ここには ports: を書かない。このネットワーク上のコンテナだけが届く」という意味です。）編集後はコンテナを作り直し（<code>docker compose up -d</code>）、ステップ 1 をもう一度行ってください。</p>
+
+<h2>4. ほかのマシンから本当に使う必要がある場合: 前段にログインを置く</h2>
+<p>ステップ 2 のとおり Ollama を <code>127.0.0.1</code> にバインドし、認証付きのリバースプロキシを唯一の入り口にします。最小限の <a href="https://caddyserver.com/docs/caddyfile/directives/basic_auth">Caddy</a> の例です（ハッシュは <code>caddy hash-password</code> で作成します）:</p>
+<pre>ollama.home.example {
+    basic_auth {
+        alice &lt;hash from caddy hash-password&gt;
+    }
+    reverse_proxy 127.0.0.1:11434 {
+        header_up Host localhost:11434
+    }
+}</pre>
+<p><code>Host</code> の行が重要です。Ollama FAQ のプロキシ例は Host ヘッダーを <code>localhost:11434</code> に書き換えており、ほかの Host 値のリクエストは拒否されることがあります。Tailscale や WireGuard のようなプライベートネットワークも選択肢です。ポートに届くのはご自身の端末だけで、インターネットには何も公開されません。<a href="../ollama-remote-access.html">Use Ollama remotely（英語）</a>では、SSH トンネル、Tailscale（Ollama の前に <code>tailscale serve</code> を置くと 403 が返る理由を含む）、LAN 内だけを許可するファイアウォールルールを順に説明しています。</p>
+<p><strong>人ではなくアプリから使う場合:</strong> Open WebUI、n8n、OpenAI 互換のクライアントは API キーを <code>Authorization: Bearer</code> として送るため、Basic 認証では拒否されます。<a href="../ollama-api-key.html">Ollama API key（英語）</a>に、キーを検証する Caddy と nginx の設定と、それぞれのクライアント側の設定があります。</p>
+<p><strong>トンネル:</strong> FAQ には <code>ngrok</code> と <code>cloudflared</code> のコマンドも載っています。それだけでは、あなたの Ollama がログインなしでインターネット全体に公開されます。トンネル事業者のアクセス制御をオンにした場合にのみ使ってください。</p>
+
+<h2>5. OLLAMA_ORIGINS は狭く保つ</h2>
+<p><code>OLLAMA_ORIGINS</code> は、ブラウザがどの Web ページに Ollama との通信を許すかを決めます。既定ではローカルのオリジンだけが許可されています。<code>*</code> に設定すると、あなたが訪れたどの Web サイトでもローカルの Ollama にリクエストを送り、その応答を読めるようになります。必要なオリジンだけを追加してください。たとえば <code>chrome-extension://*</code> ではなく、特定のブラウザ拡張機能 1 つの ID を指定します。ワンクリックの<a href="../ollama-origins-check.html">ブラウザチェック（英語）</a>で、いま Web サイトがあなたの Ollama（または LM Studio）を読めるかどうかがわかります。</p>
+
+<h2>6. 前段で Open WebUI を動かしている場合</h2>
+<ul>
+  <li>まず管理者アカウントを作成し、その後 <code>ENABLE_SIGNUP=False</code> を設定する（または管理者設定で新規登録をオフにする）ことで、ページを見つけた第三者が登録できないようにします。</li>
+  <li>新しいアカウントに承認が必要になるよう既定の <code>DEFAULT_USER_ROLE=pending</code> のままにし、再起動してもセッションが保たれるよう固定の <code>WEBUI_SECRET_KEY</code> を設定します。</li>
+  <li>最新リリースに更新してください。0.11.4 より前のバージョンには、ほとんどのスキャナーが把握していない 2026 年 9 月のアドバイザリーが 15 件以上あります。<a href="../openwebui.html">Open WebUI（英語）</a>を参照してください。</li>
+</ul>
+
+<h2>7. 最新の状態を保つ</h2>
+<p><a href="../index.html">無料の CVE チェッカー（英語）</a>でバージョンを確認してください。vLLM、n8n、Dify、RAGFlow、AnythingLLM、Langflow、Flowise、LiteLLM にも対応し、CVE 番号のないアドバイザリーも含みます。<a href="../feed.xml">Atom フィード</a>にこのサイトの更新がすべて載ります。</p>
+
+<h2>代わりに確認してほしい場合</h2>
+<p>Munim, Inc. の MV2 は、マシン 1 台の<strong>ローカル AI ヘルスチェック（49 米ドル）</strong>と、最大 5 台または共有の Ollama・Open WebUI サーバー 1 台を対象にした<strong>小規模オフィス向けチェック（199 米ドル）</strong>を提供しています。何が公開されていて、何が危険または遅いのか、何から直すべきかをまとめた報告書を、お使いの OS 向けの正確なコマンドと、GPU に合うモデルの提案とともにお届けします。報告書は英語です。<a href="../sample-report.html">報告書のサンプル（英語）</a>をご覧ください。Stripe で <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">49 ドルを支払う</a>か <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">199 ドルを支払う</a>と、その後 <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a> へ、<code>python3 local_ai_checkup.py --json</code> の出力、お使いの OS、用途をメールで送ってください。MV2 がパスワード、キー、リモートアクセスを求めることはありません。</p>
+
+<footer>
+  <p>一般的な技術情報であり、セキュリティ認証や専門的な助言ではありません。ご自身が所有する、または管理を許可されたマシンだけをテストしてください。2026 年 10 月 12 日に確認。訂正（翻訳に関するものも含む）は <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a> の Issue で歓迎します。</p>
+  <p>Munim, Inc. の MV2 による。英語から AI で翻訳。</p>
+</footer>
+</body>
+</html>

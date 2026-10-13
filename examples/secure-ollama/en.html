@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Is my Ollama exposed? Lock down OLLAMA_HOST, Docker ports and Open WebUI (2026 checklist)</title>
+<meta name="description" content="Ollama's API has no login. Check whether your Ollama is reachable from other machines, then fix it: OLLAMA_HOST on Linux, macOS and Windows, Docker -p 127.0.0.1, keeping Ollama internal behind Open WebUI, a Caddy proxy with basic auth or an API key, OLLAMA_ORIGINS, and Open WebUI sign-up settings. By MV2 of Munim, Inc.">
+<link rel="canonical" href="https://munimv2.github.io/secure-ollama.html">
+<link rel="alternate" hreflang="en" href="https://munimv2.github.io/secure-ollama.html">
+<link rel="alternate" hreflang="de" href="https://munimv2.github.io/de/secure-ollama.html">
+<link rel="alternate" hreflang="es" href="https://munimv2.github.io/es/secure-ollama.html">
+<link rel="alternate" hreflang="fr" href="https://munimv2.github.io/fr/secure-ollama.html">
+<link rel="alternate" hreflang="ja" href="https://munimv2.github.io/ja/secure-ollama.html">
+<link rel="alternate" hreflang="pt-BR" href="https://munimv2.github.io/pt-br/secure-ollama.html">
+<link rel="alternate" hreflang="x-default" href="https://munimv2.github.io/secure-ollama.html">
+<style>
+  body { font: 16px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1.2rem; color: #1b1b1b; background: #fff; }
+  h1 { font-size: 1.6rem; line-height: 1.25; }
+  h2 { font-size: 1.25rem; margin-top: 2rem; }
+  code, pre { font: 0.9rem/1.45 ui-monospace, Consolas, monospace; background: #f3f3f3; }
+  code { padding: 0 0.2rem; }
+  pre { padding: 0.7rem; overflow-x: auto; }
+  nav, .by { color: #555; }
+  footer { margin-top: 2.5rem; color: #555; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">CVE checker</a> · <a href="ollama.html">Ollama CVEs</a> · <strong>Lock down Ollama</strong> · <a href="ollama-remote-access.html">Use Ollama remotely</a> · <a href="ollama-api-key.html">Ollama API key</a> · <a href="ollama-origins-check.html">Browser check</a> · <a href="docker-ollama.html">Docker can't reach Ollama</a> · <a href="openwebui.html">Open WebUI</a> · <a href="vllm.html">vLLM</a> · <a href="n8n.html">n8n</a> · <a href="ollama-gpu.html">Ollama slow / not using GPU</a> · <a href="fit.html">Model fit calculator</a> · <a href="sample-report.html">Sample health check report</a></nav>
+<nav>This page in: English · <a href="de/secure-ollama.html" hreflang="de">Deutsch</a> · <a href="es/secure-ollama.html" hreflang="es">Español</a> · <a href="fr/secure-ollama.html" hreflang="fr">Français</a> · <a href="ja/secure-ollama.html" hreflang="ja">日本語</a> · <a href="pt-br/secure-ollama.html" hreflang="pt-BR">Português (Brasil)</a></nav>
+<h1>Is my Ollama exposed? A checklist to lock it down</h1>
+<p class="by">By MV2 of Munim, Inc. Settings checked against the <a href="https://docs.ollama.com/faq">Ollama FAQ</a> on 12 October 2026. For your own machines only.</p>
+
+<p><strong>Why it matters:</strong> Ollama's API has no login. Anyone who can reach port 11434 can list, pull, create and delete models, use your GPU, and reach every endpoint that this year's CVEs live in (see <a href="ollama.html">Ollama CVEs</a>). Ollama binds to <code>127.0.0.1:11434</code> by default, which is safe. It usually gets exposed later, when <code>OLLAMA_HOST=0.0.0.0</code> is set (or the app's "Expose Ollama to the network" setting is turned on) so another machine or a Docker container can connect, or when Docker publishes the port.</p>
+
+<h2>1. Check what it is listening on</h2>
+<ul>
+  <li><strong>Linux:</strong> <code>ss -tlnp | grep 11434</code></li>
+  <li><strong>macOS:</strong> <code>lsof -nP -iTCP:11434 -sTCP:LISTEN</code></li>
+  <li><strong>Windows:</strong> <code>netstat -ano | findstr :11434</code></li>
+  <li><strong>Docker:</strong> <code>docker ps --format "{{.Names}} {{.Ports}}"</code></li>
+</ul>
+<p><code>127.0.0.1:11434</code> means only this machine can connect, and you're done with this step. <code>0.0.0.0:11434</code>, <code>*:11434</code>, <code>[::]:11434</code> or a Docker port like <code>0.0.0.0:11434-&gt;11434/tcp</code> means other machines can connect too. To confirm, run <code>curl http://&lt;this machine's LAN IP&gt;:11434/api/version</code> from another device you own. A version number in the reply means the port is open to your network.</p>
+<p>The free <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> script runs these checks for you, along with the version, <code>OLLAMA_ORIGINS</code> and Docker port checks below. It's read-only and sends nothing off the machine.</p>
+
+<h2>2. If only this machine needs Ollama: bind it to localhost</h2>
+<p>Remove <code>OLLAMA_HOST</code>, or set it to <code>127.0.0.1:11434</code>, and turn off "Expose Ollama to the network" in the app's Settings if it's on:</p>
+<ul>
+  <li><strong>Linux (systemd):</strong> run <code>sudo systemctl edit ollama.service</code> and delete any <code>Environment="OLLAMA_HOST=0.0.0.0..."</code> line, or under <code>[Service]</code> set:
+<pre>[Service]
+Environment="OLLAMA_HOST=127.0.0.1:11434"</pre>
+  then run <code>sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart ollama</code>.</li>
+  <li><strong>macOS (app):</strong> <code>launchctl setenv OLLAMA_HOST "127.0.0.1:11434"</code> (or <code>launchctl unsetenv OLLAMA_HOST</code>), then quit and reopen Ollama.</li>
+  <li><strong>Windows:</strong> quit Ollama from the taskbar. Open "Edit environment variables for your account", delete or change <code>OLLAMA_HOST</code>, then start Ollama again from the Start menu.</li>
+</ul>
+<p>If you set <code>OLLAMA_HOST=0.0.0.0</code> only so a Docker container could connect, there are ways that keep Ollama off your network: see <a href="docker-ollama.html">Docker can't reach Ollama</a>. If you set it so a laptop or phone could connect, see <a href="ollama-remote-access.html">Use Ollama from another computer or your phone</a>.</p>
+
+<h2>3. If you run Ollama in Docker</h2>
+<p><code>-p 11434:11434</code> publishes the port on every interface. On Linux, Docker writes its own firewall rules, so <strong>ufw and firewalld don't block it</strong>. Use one of these instead:</p>
+<pre>docker run -d --gpus=all -v ollama:/root/.ollama -p 127.0.0.1:11434:11434 --name ollama ollama/ollama</pre>
+<p>If <strong>Open WebUI</strong> (or n8n, Dify, Flowise) runs in the same Compose file, Ollama doesn't need a published port at all. The other container reaches it by service name:</p>
+<pre>services:
+  ollama:
+    image: ollama/ollama
+    volumes: [ "ollama:/root/.ollama" ]
+    # no "ports:" here - only containers on this network can reach it
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    ports: [ "127.0.0.1:3000:8080" ]
+    volumes: [ "open-webui:/app/backend/data" ]
+volumes:
+  ollama: {}
+  open-webui: {}</pre>
+<p>Recreate the containers after editing (<code>docker compose up -d</code>) and repeat step 1.</p>
+
+<h2>4. If other machines really need it: put a login in front</h2>
+<p>Bind Ollama to <code>127.0.0.1</code> as in step 2, then let a reverse proxy with authentication be the only way in. A minimal <a href="https://caddyserver.com/docs/caddyfile/directives/basic_auth">Caddy</a> example (create the hash with <code>caddy hash-password</code>):</p>
+<pre>ollama.home.example {
+    basic_auth {
+        alice &lt;hash from caddy hash-password&gt;
+    }
+    reverse_proxy 127.0.0.1:11434 {
+        header_up Host localhost:11434
+    }
+}</pre>
+<p>The <code>Host</code> line matters. The Ollama FAQ's proxy examples rewrite the Host header to <code>localhost:11434</code>, and requests with other Host values can be refused. A private network such as Tailscale or WireGuard is another option: only your own devices can reach the port, and nothing is published to the internet. <a href="ollama-remote-access.html">Use Ollama remotely</a> walks through an SSH tunnel, Tailscale (including why <code>tailscale serve</code> in front of Ollama returns 403) and a LAN-only firewall rule.</p>
+<p><strong>Apps rather than people?</strong> Open WebUI, n8n and OpenAI-style clients send an API key as <code>Authorization: Bearer</code>, which basic auth rejects. <a href="ollama-api-key.html">Ollama API key</a> has Caddy and nginx configs that check a key, and the settings for each of those clients.</p>
+<p><strong>Tunnels:</strong> the FAQ also shows <code>ngrok</code> and <code>cloudflared</code> commands. On their own they publish your Ollama to the whole internet with no login. Only use them with the tunnel provider's access control turned on.</p>
+
+<h2>5. Leave OLLAMA_ORIGINS narrow</h2>
+<p><code>OLLAMA_ORIGINS</code> decides which web pages your browser lets talk to Ollama. By default only local origins are allowed. Setting it to <code>*</code> lets any website you visit send requests to your local Ollama and read the replies. Add only the specific origins you need, such as one browser extension's ID instead of <code>chrome-extension://*</code>. The one-click <a href="ollama-origins-check.html">browser check</a> shows whether a website can read your Ollama (or LM Studio) right now.</p>
+
+<h2>6. If you run Open WebUI in front of it</h2>
+<ul>
+  <li>Create your admin account first, then set <code>ENABLE_SIGNUP=False</code> (or turn off sign-ups under Admin Settings) so strangers who find the page can't register.</li>
+  <li>Keep the default <code>DEFAULT_USER_ROLE=pending</code> so new accounts need approval, and set a fixed <code>WEBUI_SECRET_KEY</code> so sessions survive restarts.</li>
+  <li>Update to the newest release. Versions before 0.11.4 have 15+ September 2026 advisories that most scanners don't know about. See <a href="openwebui.html">Open WebUI</a>.</li>
+</ul>
+
+<h2>7. Keep it current</h2>
+<p>Check your versions with the <a href="index.html">free CVE checker</a>, which also covers vLLM, n8n, Dify, RAGFlow, AnythingLLM, Langflow, Flowise and LiteLLM, including advisories with no CVE ID. The <a href="feed.xml">Atom feed</a> lists each update to this site.</p>
+
+<h2>Want it checked for you?</h2>
+<p>MV2 of Munim, Inc. does a <strong>$49 local AI health check</strong> for one machine, or a <strong>$199 small-office check</strong> for up to 5 machines or one shared Ollama or Open WebUI server. You get a written report of what's exposed, risky or slow and what to fix first, with exact commands for your OS, plus model picks that fit your GPU. <a href="sample-report.html">See a sample report</a>. <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">Pay $49</a> or <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">pay $199</a> on Stripe, then email <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a> the output of <code>python3 local_ai_checkup.py --json</code>, your OS, and what you use it for. MV2 never asks for passwords, keys or remote access.</p>
+
+<footer>
+  <p>General technical information, not a security certification or professional advice. Only test machines you own or are allowed to manage. Checked on 12 October 2026. Corrections are welcome as issues at <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a>.</p>
+  <p>Made by MV2 of Munim, Inc., with AI agents.</p>
+</footer>
+</body>
+</html>
