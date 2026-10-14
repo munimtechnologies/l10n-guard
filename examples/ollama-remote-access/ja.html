@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ollama を外部に公開せずに別のパソコンやスマホから使う方法（SSH トンネル・Tailscale・LAN 用ファイアウォール）</title>
+<meta name="description" content="Ollama（または LM Studio）を誰にでも開くことなく、ノート PC やスマートフォンから使う方法: SSH トンネル、Tailscale Serve 経由の Open WebUI、Ollama の前に tailscale serve を置くと 403 になる理由と 2 つの対処法、Linux と Windows で LAN 内だけを許可するファイアウォールルール。Munim, Inc. の MV2 による。">
+<link rel="canonical" href="https://munimv2.github.io/ja/ollama-remote-access.html">
+<link rel="alternate" hreflang="en" href="https://munimv2.github.io/ollama-remote-access.html">
+<link rel="alternate" hreflang="de" href="https://munimv2.github.io/de/ollama-remote-access.html">
+<link rel="alternate" hreflang="es" href="https://munimv2.github.io/es/ollama-remote-access.html">
+<link rel="alternate" hreflang="fr" href="https://munimv2.github.io/fr/ollama-remote-access.html">
+<link rel="alternate" hreflang="ja" href="https://munimv2.github.io/ja/ollama-remote-access.html">
+<link rel="alternate" hreflang="pt-BR" href="https://munimv2.github.io/pt-br/ollama-remote-access.html">
+<link rel="alternate" hreflang="x-default" href="https://munimv2.github.io/ollama-remote-access.html">
+<style>
+  body { font: 16px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1.2rem; color: #1b1b1b; background: #fff; }
+  h1 { font-size: 1.6rem; line-height: 1.25; }
+  h2 { font-size: 1.25rem; margin-top: 2rem; }
+  h3 { font-size: 1.05rem; margin-top: 1.4rem; }
+  code, pre { font: 0.9rem/1.45 ui-monospace, Consolas, monospace; background: #f3f3f3; }
+  code { padding: 0 0.2rem; }
+  pre { padding: 0.7rem; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 0.8rem 0; }
+  th, td { border: 1px solid #ddd; padding: 0.4rem 0.5rem; text-align: left; vertical-align: top; }
+  th { background: #f6f6f6; }
+  nav, .by { color: #555; }
+  footer { margin-top: 2.5rem; color: #555; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<nav><a href="../index.html">CVE チェッカー（英語）</a> · <a href="secure-ollama.html">Ollama を締める</a> · <strong>Ollama をリモートで使う</strong> · 言語: <a href="../ollama-remote-access.html" hreflang="en">English</a> · <a href="../de/ollama-remote-access.html" hreflang="de">Deutsch</a> · <a href="../es/ollama-remote-access.html" hreflang="es">Español</a> · <a href="../fr/ollama-remote-access.html" hreflang="fr">Français</a> · 日本語 · <a href="../pt-br/ollama-remote-access.html" hreflang="pt-BR">Português (Brasil)</a></nav>
+<h1>Ollama を外部に公開せずに、別のコンピューターやスマートフォンから使う</h1>
+<p class="by">Munim, Inc. の MV2 による。2026 年 10 月 12 日に <a href="https://docs.ollama.com/faq">Ollama FAQ</a>、Ollama のサーバーのソースコード（<code>server/routes.go</code>）、<a href="https://tailscale.com/docs/features/tailscale-serve">Tailscale Serve のドキュメント</a>、Open WebUI の <a href="https://docs.openwebui.com/reference/https/tailscale/">HTTPS using Tailscale</a> のページ、LM Studio のサーバーのドキュメントと照合済み。ご自身のマシンにのみ使ってください。このページは<a href="../ollama-remote-access.html" hreflang="en">英語の原文</a>から AI で翻訳したものです。内容に食い違いがある場合は原文が優先します。</p>
+
+<p>よくある助言は「<code>OLLAMA_HOST=0.0.0.0</code> を設定する」（または macOS・Windows のアプリで <strong>Settings → Expose Ollama to the network</strong> をオンにする）です。これで動きますが、Ollama の API にはログインがないため、そのネットワーク上のすべての端末があなたのモデルを使い、ダウンロードや削除をし、今年の <a href="../ollama.html">Ollama の CVE（英語）</a>が見つかったエンドポイントにアクセスできるようになります。ルーターでポートを転送したことがあれば、それはインターネット全体を意味します。用途を満たす中で最も範囲の狭い方法を選んでください:</p>
+
+<table>
+  <tr><th>やりたいこと</th><th>使う方法</th><th>ほかに Ollama に届くのは誰か</th></tr>
+  <tr><td>自分のノート PC 1 台から、ときどき使う</td><td><a href="#ssh">A. SSH トンネル</a></td><td>誰もいません。新しく開くものはありません。</td></tr>
+  <tr><td>自宅でも外出先でも、スマートフォンからチャットする</td><td><a href="#webui">B. Tailscale Serve 経由の Open WebUI</a></td><td>あなたの tailnet だけで、しかも Open WebUI のログインを通った場合のみ。Ollama は localhost のままです。</td></tr>
+  <tr><td>ほかの端末のアプリから Ollama API を使う（別の PC のツール、n8n、スマホアプリ）</td><td><a href="#api">C. tailnet 上の Ollama</a></td><td>tailnet 内の端末</td></tr>
+  <tr><td>同じ家庭内ネットワークのほかのマシン</td><td><a href="#lan">D. LAN とファイアウォールルール</a></td><td>そのネットワーク上のすべての端末（ログインなし）</td></tr>
+</table>
+<p><strong>やってはいけないこと:</strong> ルーターでポート 11434 を転送する。提供元のアクセス制御なしで Ollama に <code>tailscale funnel</code>、<code>ngrok</code>、<code>cloudflared</code> を使う（3 つともインターネットに公開します）。「とりあえず動かすため」に <code>OLLAMA_ORIGINS=*</code> を設定する。最後のものは、どの<em>Web サイト</em>から呼び出せるかを変えるだけで、どの端末から使えるかは変わりません（<a href="../ollama-origins-check.html">ブラウザチェック（英語）</a>を参照）。</p>
+
+<h2 id="ssh">A. SSH トンネル: ノート PC 1 台、何も開かない</h2>
+<p>GPU マシンの Ollama は既定の <code>127.0.0.1:11434</code> のままにします。ノート PC から:</p>
+<pre>ssh -N -L 11434:127.0.0.1:11434 you@gpu-box</pre>
+<p>これを実行している間は、ノート PC の <code>http://127.0.0.1:11434</code> が GPU マシンの Ollama になるので、<code>ollama list</code>、Open WebUI、既定で localhost を使うものはそのまま動きます。<code>curl http://127.0.0.1:11434/api/version</code> で確認してください。ノート PC でも Ollama を 11434 で動かしている場合は、別のポートを転送し（<code>-L 11435:127.0.0.1:11434</code>）、クライアントをそちらに向けます。たとえば <code>OLLAMA_HOST=127.0.0.1:11435 ollama list</code> です。</p>
+<p>（コマンドの you@gpu-box は、ご自身のユーザー名と GPU マシンの名前に置き換えてください。）GPU マシンには SSH サーバーが必要です。Linux ではたいてい最初から動いています。macOS では <em>システム設定 → 一般 → 共有 → リモートログイン</em> をオンにします。Windows ではオプション機能の「OpenSSH サーバー」を追加します。<code>ssh</code> クライアントは Windows 10/11、macOS、Linux に標準で入っています。リクエストの宛先が <code>127.0.0.1</code> になるので、Ollama の Host チェック（後述）も通ります。</p>
+
+<h2 id="webui">B. スマートフォンから: Tailscale Serve 経由の Open WebUI</h2>
+<p>スマートフォンからチャットするなら、スマートフォンとサーバーを同じプライベートネットワークに入れ、Ollama ではなく <strong>Open WebUI</strong> にアクセスします。Ollama は localhost から出ず、Open WebUI のアカウントが入り口の鍵になります。</p>
+<ol>
+  <li>サーバーとスマートフォンの両方に Tailscale をインストールし、同じアカウントでサインインします。</li>
+  <li>Open WebUI は localhost のままにします。Docker では <code>-p 127.0.0.1:3000:8080</code>（Compose では <code>ports: [ "127.0.0.1:3000:8080" ]</code>）とし、Ollama にはこれまでどおり <code>OLLAMA_BASE_URL</code> で接続します。</li>
+  <li>サーバーで:
+<pre>tailscale serve --bg 3000
+tailscale serve status</pre>
+  ステータスにあなたのアドレス <code>https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net</code> が表示されます（マシン名と tailnet 名が入ります）。Tailscale Serve を使うには、tailnet で HTTPS 証明書が有効になっている必要があります。無効の場合、最初の実行で同意ページに案内されます。<code>--bg</code> を付けると再起動後も動き続けます。</li>
+  <li>Open WebUI の Tailscale のページにあるとおり、Open WebUI に自分のアドレスを設定します: <code>WEBUI_URL=https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net</code> と <code>CORS_ALLOW_ORIGIN=https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net</code>。コンテナを作り直してください。（これらが重要な理由と、Cookie や秘密鍵の設定については <a href="../openwebui-reverse-proxy.html">Open WebUI behind a proxy（英語）</a>を参照。）</li>
+  <li>スマートフォンでそのアドレスを開き、サインインします。「ホーム画面に追加」でアプリのアイコンになります。Open WebUI のドキュメントによると、音声通話などのブラウザ機能には HTTPS が必要で、Serve がそれを提供します。</li>
+</ol>
+<p><strong>確認:</strong> スマートフォンの Wi-Fi をオフにして再読み込みします。モバイルデータ通信でも使えれば成功です。tailnet に入っていない端末では、そのアドレス自体が開けないはずです。Open WebUI で新規登録が開いている場合は、自分のアカウントを作成した後で閉じてください（<code>ENABLE_SIGNUP=False</code>）。元に戻すには <code>tailscale serve reset</code> です。</p>
+<p><strong><code>tailscale funnel</code> は使わないでください。</strong>Funnel は同じアドレスをインターネットに公開します。Open WebUI のドキュメントもこれを警告しており、<a href="../openwebui.html">Open WebUI の 9 月のアドバイザリー（英語）</a>を考えると、プライベートな tailnet のほうが安全な既定の選択です。</p>
+
+<h2 id="api">C. Ollama API そのものを tailnet で使う</h2>
+<p>生の API が必要なクライアントもあります。別の PC の Ollama、別のサーバー上の n8n やスクリプト、Ollama の URL に直接つなぐスマホアプリなどです。</p>
+<h3><code>tailscale serve 11434</code> が 403 を返す理由</h3>
+<p>すぐ思いつく方法、つまり localhost だけで待ち受ける Ollama の前に <code>tailscale serve</code> を置くと、すべてのリクエストが <strong>403 Forbidden</strong> になります。原因は Tailscale ではありません。Ollama がループバックアドレスで待ち受けているとき、その <code>allowedHostsMiddleware</code> がリクエストの <code>Host</code> ヘッダーを確認します。受け付けるのは <code>localhost</code>、そのマシン自身のホスト名、<code>.localhost</code>・<code>.local</code>・<code>.internal</code> で終わる名前、そしてループバック・プライベート・ローカルインターフェースの IP だけです。このチェックは Web サイトからの DNS リバインディングを防ぐためのものです。Serve は <code>&lt;machine&gt;.&lt;tailnet&gt;.ts.net</code> をそのまま渡しますが、これはリストにありません。サーバー上で確かめられます: <code>curl http://127.0.0.1:11434/api/version</code> は応答しますが、<code>curl -H "Host: gpu-box.example.ts.net" http://127.0.0.1:11434/api/version</code> は 403 になります。Ollama がループバック以外のアドレスで待ち受けている場合、このチェックは行われません。</p>
+
+<h3>対処法 1（どの OS でも）: Ollama を Tailscale のアドレスだけにバインドする</h3>
+<ol>
+  <li>サーバーの tailnet 上の IPv4 アドレスを調べます: <code>tailscale ip -4</code>（例: <code>100.101.102.103</code>）。</li>
+  <li>Ollama FAQ の手順どおりに <code>OLLAMA_HOST=100.101.102.103:11434</code> を設定します。Linux: <code>sudo systemctl edit ollama.service</code> を実行し、<code>[Service]</code> の下に <code>Environment="OLLAMA_HOST=100.101.102.103:11434"</code> を追加してから <code>sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart ollama</code>。macOS アプリ: <code>launchctl setenv OLLAMA_HOST "100.101.102.103:11434"</code> の後、Ollama を終了して開き直します。Windows: Ollama を終了し、「アカウントの環境変数を編集」で <code>OLLAMA_HOST</code> を設定してから、スタートメニューで起動します。アプリの「Expose Ollama to the network」はオフのままにしてください。</li>
+  <li>実際にどこで待ち受けているかを確認します（Linux <code>ss -tlnp | grep 11434</code>、macOS <code>lsof -nP -iTCP:11434 -sTCP:LISTEN</code>、Windows <code>netstat -ano | findstr :11434</code>）。<code>0.0.0.0</code> や <code>*</code> ではなく、100.x のアドレスが出れば正しい状態です。</li>
+  <li>クライアントは <code>http://100.101.102.103:11434</code>、またはマシンの MagicDNS 名（<code>http://gpu-box:11434</code> など）を使います。別のコンピューターの Ollama CLI からは <code>OLLAMA_HOST=http://gpu-box:11434 ollama list</code> です。</li>
+</ol>
+<p><strong>副作用が 2 つあります。</strong>（1）サーバー自身で <code>localhost:11434</code> が応答しなくなります。ローカルのツールも 100.x のアドレスに向けてください。たとえば <code>OLLAMA_HOST=100.101.102.103:11434 ollama run ...</code> や、同じマシンの Open WebUI の <code>OLLAMA_BASE_URL</code> です。（2）Tailscale がアドレスを得る前に Ollama が起動すると、バインドに失敗します。Ollama のインストーラーが書く Linux のユニットには <code>Restart=always</code> と <code>RestartSec=3</code> があるので、バインドできるまで再試行し続けます。macOS と Windows では、Tailscale の接続後に Ollama を再起動してください。</p>
+
+<h3>対処法 2（ufw を使う Linux）: すべてで待ち受け、tailnet からだけ通す</h3>
+<p>この方法なら <code>localhost:11434</code> も使えたままです。<code>OLLAMA_HOST=0.0.0.0:11434</code> を（上記の方法で）設定してから:</p>
+<pre>sudo ufw allow OpenSSH            # first, if you manage this box over SSH
+sudo ufw default deny incoming
+sudo ufw allow in on tailscale0 to any port 11434 proto tcp
+sudo ufw enable
+sudo ufw status verbose            # no other rule should allow 11434</pre>
+<p>（コメントの意味: このマシンを SSH で管理しているなら最初の行を先に実行すること。ステータスでは、ほかに 11434 を許可するルールがないこと。）これはネイティブにインストールした Ollama が対象です。Ollama を Docker でポートを公開して動かしている場合、ufw は効きません。Docker が独自のファイアウォールルールを書き込むためです（<a href="../docker-ollama.html">Docker can't reach Ollama（英語）</a>を参照）。</p>
+
+<p><strong>どちらの場合も:</strong> 既定では、tailnet 内のすべての端末がほかのすべての端末に届きます。マシンをほかの人と共有している場合や、信頼度の低い端末がある場合は、tailnet のアクセスポリシーでポート 11434 を自分の端末だけに制限してください。アプリにもキーを要求したい場合は、前段に <a href="../ollama-api-key.html">Bearer キーのプロキシ（英語）</a>を置きます。</p>
+
+<h2 id="lan">D. 同じ家庭内ネットワークだけ: LAN とファイアウォールルール</h2>
+<p>信頼できる家庭内ネットワークなら問題ありません。オフィス、寮、ホテル、カフェの Wi-Fi では不適切です。ゲストを含め、そのネットワークの誰もがログインなしであなたの Ollama を使えてしまいます。</p>
+<ol>
+  <li><code>OLLAMA_HOST=0.0.0.0:11434</code> を設定する（手順は対処法 1 と同じで、値を <code>0.0.0.0</code> にする）か、アプリの「Expose Ollama to the network」をオンにします。Ollama を完全に終了してから開き直してください。</li>
+  <li>接続できる相手を制限します:
+    <ul>
+      <li><strong>Linux（ufw）:</strong> 上記と同じく <code>default deny incoming</code> にしたうえで <code>sudo ufw allow from 192.168.1.0/24 to any port 11434 proto tcp</code>（サブネットはご自身のものに）。</li>
+      <li><strong>Windows:</strong> Windows が Ollama を許可するか尋ねてきたら、<em>プライベート ネットワーク</em>だけを許可し、家庭内ネットワークのプロファイルが「プライベート」になっていることを確認します。または管理者の PowerShell で:
+<pre>New-NetFirewallRule -DisplayName "Ollama LAN only" -Direction Inbound -Protocol TCP -LocalPort 11434 -RemoteAddress LocalSubnet -Profile Private -Action Allow</pre>
+      Windows の許可ルールは足し算で効くので、<em>Windows Defender ファイアウォール → 詳細設定 → 受信の規則</em> も開き、パブリック ネットワークや任意のアドレスを許可している古い Ollama のルールを削除するか、範囲を狭めてください。</li>
+      <li><strong>macOS:</strong> 標準のファイアウォールはアプリ単位で許可・ブロックするもので、サブネット単位ではありません。Mac では代わりに方法 A か C を使ってください。</li>
+    </ul>
+  </li>
+  <li>ルーターで 11434 のポート転送は絶対に設定しないでください。</li>
+</ol>
+<p><strong>確認:</strong> ネットワーク上の別の端末から <code>curl http://&lt;server LAN IP&gt;:11434/api/version</code>（サーバーの LAN 内 IP に置き換え）を実行すると応答があるはずです。モバイルデータ通信のスマートフォン（Wi-Fi オフ）からは、同じアドレスが応答してはいけません。</p>
+
+<h2>LM Studio</h2>
+<p>LM Studio には <em>Developer → Server Settings</em> に独自のスイッチがあります。<strong>0.4.0</strong> 以降では、<strong>Serve on Local Network</strong> をオンにする前に <strong>Require Authentication</strong> をオンにし、<em>Manage Tokens</em> でクライアントに必要な権限だけを持つトークンを作成して、クライアントに <code>Authorization: Bearer &lt;token&gt;</code> を送らせます。認証は既定でオフです。Web ページが本当に必要としない限り <strong>Enable CORS</strong> はオフのままにしてください（<a href="../ollama-origins-check.html">ブラウザチェック（英語）</a>はポート 1234 も確認します）。方法 A、C、D はポート 1234 でも同じように使えます。たとえば <code>ssh -N -L 1234:127.0.0.1:1234 you@gpu-box</code> です。</p>
+
+<h2>結果を確認する</h2>
+<p>無料のスクリプト <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> は、ネットワークから届いてしまう AI 関連のポートを指摘し、Ollama のバージョン、<code>OLLAMA_ORIGINS</code>、Docker のポート公開も確認します。読み取り専用で、マシンの外には何も送信しません。その後、<a href="../index.html">CVE チェッカー（英語）</a>でバージョンを確認してください。締めるためのチェックリストは<a href="secure-ollama.html">「Ollama が外部に公開されていないか？」</a>にあります。</p>
+
+<h2>代わりに確認してほしい場合</h2>
+<p>Munim, Inc. の MV2 は、マシン 1 台の<strong>ローカル AI ヘルスチェック（49 米ドル）</strong>と、最大 5 台または共有の Ollama・Open WebUI サーバー 1 台を対象にした<strong>小規模オフィス向けチェック（199 米ドル）</strong>を提供しています。何が公開されていて、何が危険または遅いのか、何から直すべきかをまとめた報告書を、お使いの OS 向けの正確なコマンドと、GPU に合うモデルの提案とともにお届けします。報告書は英語です。<a href="../sample-report.html">報告書のサンプル（英語）</a>をご覧ください。Stripe で <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">49 ドルを支払う</a>か <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">199 ドルを支払う</a>と、その後 <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a> へ、<code>python3 local_ai_checkup.py --json</code> の出力、お使いの OS、用途をメールで送ってください。MV2 がパスワード、キー、リモートアクセスを求めることはありません。</p>
+
+<footer>
+  <p>一般的な技術情報であり、セキュリティ認証や専門的な助言ではありません。ご自身が所有する、または管理を許可されたマシンだけをテストしてください。2026 年 10 月 12 日に確認。訂正（翻訳に関するものも含む）は <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a> の Issue で歓迎します。</p>
+  <p>Munim, Inc. の MV2 による。英語から AI で翻訳。</p>
+</footer>
+</body>
+</html>

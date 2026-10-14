@@ -15,7 +15,12 @@ because they read for meaning. `l10n-guard` checks a translation against its sou
   and counts of fuzzy and untranslated entries.
 - **HTML and Markdown docs**: every code block must be byte-identical, inline code must match,
   external links (including `mailto:` and checkout links) must survive, and `<html lang>` must
-  change. Numbers that vanish from the prose are reported as warnings.
+  change. Numbers that vanish from the prose are reported as warnings. If the pages carry
+  `<link rel="alternate" hreflang>` tags, the translation must list the same alternates as the
+  source, because search engines ignore a language cluster whose pages disagree.
+- **Whole locale folders** (new in 0.2.0): `dir site site/de` checks every HTML, Markdown and JSON
+  file under `site/de` against the file with the same path under `site`. When the folder is named
+  like a language (`de`, `ja`, `pt-br`, `zh_Hans`), each page's `<html lang>` must match it.
 
 Placeholder styles recognised: `{{name}}`, `{name}`, `{0}`, ICU `{count, plural, ...}` (by argument
 name, so translated plural branches are fine), `%s`, `%d`, `%.2f`, `%(name)s`, `%1$s`, `${name}`.
@@ -29,6 +34,7 @@ python3 l10n_guard.py json locales/en.json locales/de.json
 python3 l10n_guard.py po   locale/pl/LC_MESSAGES/messages.po
 python3 l10n_guard.py html secure-ollama.html de/secure-ollama.html
 python3 l10n_guard.py md   README.md README.ja.md
+python3 l10n_guard.py dir  site site/ja
 python3 l10n_guard.py --json --strict json en.json fr.json   # options go before the kind
 ```
 
@@ -41,6 +47,10 @@ WARNING missing-key [settings.title]: key missing from translation
 2 error(s), 1 warning(s)
 ```
 
+In `dir` mode each issue starts with the file's path, for example
+`ERROR inline-code-missing [guide.html]: ...` or `WARNING no-source [extra.html]: ...` for a
+translated file with no source file next to it.
+
 Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn't be read.
 `--strict` counts warnings as errors. `--json` prints machine-readable output.
 
@@ -48,20 +58,32 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimv2/l10n-guard@v0.1.0
+- uses: munimv2/l10n-guard@v0.2.0
   with:
     kind: json
     source: locales/en.json
     target: locales/de.json
 ```
 
+A whole translated folder:
+
+```yaml
+- uses: munimv2/l10n-guard@v0.2.0
+  with:
+    kind: dir
+    source: docs
+    target: docs/de
+```
+
 ## Tested on real translations
 
-`examples/secure-ollama/` holds an English guide and five translations of it (German, Spanish,
-French, Japanese, Brazilian Portuguese), published at
-[munimv2.github.io/secure-ollama.html](https://munimv2.github.io/secure-ollama.html). The test
-suite checks that every command, code block and external link, including both payment links,
-survived translation. Those translations were made with AI and are labelled as such on each page.
+`examples/` holds three English guides from [munimv2.github.io](https://munimv2.github.io/), each
+with five translations (German, Spanish, French, Japanese, Brazilian Portuguese):
+[secure-ollama](https://munimv2.github.io/secure-ollama.html),
+[ollama-remote-access](https://munimv2.github.io/ollama-remote-access.html) and
+[ollama-api-key](https://munimv2.github.io/ollama-api-key.html). The test suite checks that every
+command, code block and external link, including both payment links, survived translation. Those
+translations were made with AI and are labelled as such on each page.
 
 ## About
 

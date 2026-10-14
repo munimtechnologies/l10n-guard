@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Usar Ollama desde otro ordenador o desde el móvil sin exponerlo (túnel SSH, Tailscale, cortafuegos de red local)</title>
+<meta name="description" content="Acceda a su Ollama (o LM Studio) desde un portátil o el móvil sin abrirlo a todo el mundo: un túnel SSH, Open WebUI a través de Tailscale Serve, por qué tailscale serve delante de Ollama devuelve 403 y las dos soluciones, y una regla de cortafuegos solo para la red local en Linux y Windows. Por MV2 de Munim, Inc.">
+<link rel="canonical" href="https://munimv2.github.io/es/ollama-remote-access.html">
+<link rel="alternate" hreflang="en" href="https://munimv2.github.io/ollama-remote-access.html">
+<link rel="alternate" hreflang="de" href="https://munimv2.github.io/de/ollama-remote-access.html">
+<link rel="alternate" hreflang="es" href="https://munimv2.github.io/es/ollama-remote-access.html">
+<link rel="alternate" hreflang="fr" href="https://munimv2.github.io/fr/ollama-remote-access.html">
+<link rel="alternate" hreflang="ja" href="https://munimv2.github.io/ja/ollama-remote-access.html">
+<link rel="alternate" hreflang="pt-BR" href="https://munimv2.github.io/pt-br/ollama-remote-access.html">
+<link rel="alternate" hreflang="x-default" href="https://munimv2.github.io/ollama-remote-access.html">
+<style>
+  body { font: 16px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1.2rem; color: #1b1b1b; background: #fff; }
+  h1 { font-size: 1.6rem; line-height: 1.25; }
+  h2 { font-size: 1.25rem; margin-top: 2rem; }
+  h3 { font-size: 1.05rem; margin-top: 1.4rem; }
+  code, pre { font: 0.9rem/1.45 ui-monospace, Consolas, monospace; background: #f3f3f3; }
+  code { padding: 0 0.2rem; }
+  pre { padding: 0.7rem; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 0.8rem 0; }
+  th, td { border: 1px solid #ddd; padding: 0.4rem 0.5rem; text-align: left; vertical-align: top; }
+  th { background: #f6f6f6; }
+  nav, .by { color: #555; }
+  footer { margin-top: 2.5rem; color: #555; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<nav><a href="../index.html">Comprobador de CVE (en inglés)</a> · <a href="secure-ollama.html">Asegurar Ollama</a> · <strong>Usar Ollama en remoto</strong> · Idiomas: <a href="../ollama-remote-access.html" hreflang="en">English</a> · <a href="../de/ollama-remote-access.html" hreflang="de">Deutsch</a> · Español · <a href="../fr/ollama-remote-access.html" hreflang="fr">Français</a> · <a href="../ja/ollama-remote-access.html" hreflang="ja">日本語</a> · <a href="../pt-br/ollama-remote-access.html" hreflang="pt-BR">Português (Brasil)</a></nav>
+<h1>Usar Ollama desde otro ordenador o desde el móvil, sin exponerlo</h1>
+<p class="by">Por MV2 de Munim, Inc. Comprobado el 12 de octubre de 2026 con las <a href="https://docs.ollama.com/faq">preguntas frecuentes de Ollama</a>, el código fuente del servidor de Ollama (<code>server/routes.go</code>), la <a href="https://tailscale.com/docs/features/tailscale-serve">documentación de Tailscale Serve</a>, la página <a href="https://docs.openwebui.com/reference/https/tailscale/">HTTPS using Tailscale</a> de Open WebUI y la documentación del servidor de LM Studio. Solo para sus propias máquinas. Esta página se tradujo con IA del <a href="../ollama-remote-access.html" hreflang="en">original en inglés</a>; si hay diferencias, prevalece el original.</p>
+
+<p>El consejo habitual es «defina <code>OLLAMA_HOST=0.0.0.0</code>» (o active <strong>Settings → Expose Ollama to the network</strong> en la aplicación de macOS y Windows). Funciona, pero la API de Ollama no tiene inicio de sesión, así que también permite que cualquier dispositivo de esa red use sus modelos, los descargue y los borre, y llegue a los endpoints donde están los <a href="../ollama.html">CVE de Ollama de este año (en inglés)</a>. Si alguna vez el puerto se reenvía en el router, eso significa todo internet. Elija la opción más restringida que le sirva:</p>
+
+<table>
+  <tr><th>Quiere</th><th>Use</th><th>Quién más puede llegar a Ollama</th></tr>
+  <tr><td>Un portátil suyo, de vez en cuando</td><td><a href="#ssh">A. Túnel SSH</a></td><td>Nadie. No se abre nada nuevo.</td></tr>
+  <tr><td>Chatear desde el móvil, en casa o fuera</td><td><a href="#webui">B. Open WebUI a través de Tailscale Serve</a></td><td>Solo su tailnet, y solo a través del inicio de sesión de Open WebUI. Ollama se queda en localhost.</td></tr>
+  <tr><td>Aplicaciones en otros dispositivos que hablan con la API de Ollama (herramientas de otro PC, n8n, una app del móvil)</td><td><a href="#api">C. Ollama en su tailnet</a></td><td>Los dispositivos de su tailnet</td></tr>
+  <tr><td>Otras máquinas de la misma red doméstica</td><td><a href="#lan">D. Red local más una regla de cortafuegos</a></td><td>Cualquier dispositivo de esa red, sin inicio de sesión</td></tr>
+</table>
+<p><strong>No haga esto:</strong> reenviar el puerto 11434 en el router; usar <code>tailscale funnel</code>, <code>ngrok</code> o <code>cloudflared</code> con Ollama sin el control de acceso del proveedor (los tres lo publican en internet); ni definir <code>OLLAMA_ORIGINS=*</code> «para que funcione». Esto último cambia qué <em>sitios web</em> pueden llamarlo, no qué dispositivos (vea la <a href="../ollama-origins-check.html">comprobación del navegador (en inglés)</a>).</p>
+
+<h2 id="ssh">A. Túnel SSH: un portátil, nada que abrir</h2>
+<p>Deje Ollama en su valor por defecto <code>127.0.0.1:11434</code> en la máquina con GPU. Desde el portátil:</p>
+<pre>ssh -N -L 11434:127.0.0.1:11434 you@gpu-box</pre>
+<p>Mientras se ejecuta, <code>http://127.0.0.1:11434</code> en el portátil es el Ollama de la máquina con GPU, así que <code>ollama list</code>, Open WebUI y todo lo que use localhost por defecto funciona sin más. Pruébelo con <code>curl http://127.0.0.1:11434/api/version</code>. Si el portátil tiene su propio Ollama en 11434, reenvíe otro puerto (<code>-L 11435:127.0.0.1:11434</code>) y apunte los clientes a él, por ejemplo <code>OLLAMA_HOST=127.0.0.1:11435 ollama list</code>.</p>
+<p>(En el comando, sustituya you@gpu-box por su usuario y el nombre de la máquina con GPU.) La máquina con GPU necesita un servidor SSH: en Linux suele estar ya activo; en macOS, active <em>Ajustes del Sistema → General → Compartir → Sesión remota</em>; en Windows, añada la característica opcional «Servidor OpenSSH». El cliente <code>ssh</code> viene incluido en Windows 10/11, macOS y Linux. Así también se supera la comprobación de Host de Ollama (vea más abajo), porque la petición va dirigida a <code>127.0.0.1</code>.</p>
+
+<h2 id="webui">B. Desde el móvil: Open WebUI a través de Tailscale Serve</h2>
+<p>Para chatear desde el móvil, ponga el móvil en una red privada con el servidor y acceda a <strong>Open WebUI</strong>, no a Ollama. Ollama nunca sale de localhost, y las cuentas de Open WebUI siguen siendo la puerta de entrada.</p>
+<ol>
+  <li>Instale Tailscale en el servidor y en el móvil e inicie sesión con la misma cuenta en ambos.</li>
+  <li>Mantenga Open WebUI en localhost. En Docker: <code>-p 127.0.0.1:3000:8080</code> (en Compose: <code>ports: [ "127.0.0.1:3000:8080" ]</code>), con Ollama accesible en <code>OLLAMA_BASE_URL</code> como antes.</li>
+  <li>En el servidor:
+<pre>tailscale serve --bg 3000
+tailscale serve status</pre>
+  El estado muestra su dirección, <code>https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net</code> (con el nombre de su máquina y de su tailnet). Tailscale Serve necesita que los certificados HTTPS estén activados en su tailnet; si no lo están, la primera ejecución le lleva a una página de consentimiento. <code>--bg</code> hace que siga funcionando tras reiniciar.</li>
+  <li>Indique a Open WebUI su dirección, como dice su página de Tailscale: <code>WEBUI_URL=https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net</code> y <code>CORS_ALLOW_ORIGIN=https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net</code>. Vuelva a crear el contenedor. (Por qué importan, y los ajustes de cookies y de clave secreta: <a href="../openwebui-reverse-proxy.html">Open WebUI behind a proxy (en inglés)</a>.)</li>
+  <li>En el móvil, abra esa dirección e inicie sesión. Con «Añadir a pantalla de inicio» se convierte en un icono de app. La documentación de Open WebUI indica que funciones del navegador como las llamadas de voz necesitan HTTPS, y Serve se lo da.</li>
+</ol>
+<p><strong>Pruébelo:</strong> desactive el wifi del móvil y recargue: debería seguir funcionando con datos móviles. Un dispositivo que no esté en su tailnet no debería cargar la dirección en absoluto. Si el registro está abierto en Open WebUI, ciérrelo (<code>ENABLE_SIGNUP=False</code>) después de crear sus cuentas. Para deshacerlo: <code>tailscale serve reset</code>.</p>
+<p><strong>No use <code>tailscale funnel</code>.</strong> Funnel hace pública en internet la misma dirección. La documentación de Open WebUI lo advierte, y teniendo en cuenta los <a href="../openwebui.html">avisos de seguridad de Open WebUI de septiembre (en inglés)</a>, una tailnet privada es la opción por defecto más segura.</p>
+
+<h2 id="api">C. La propia API de Ollama en su tailnet</h2>
+<p>Algunos clientes necesitan la API directa: Ollama en otro PC, n8n o un script en otro servidor, apps del móvil que se conectan directamente a una URL de Ollama.</p>
+<h3>Por qué <code>tailscale serve 11434</code> devuelve 403</h3>
+<p>El paso obvio, poner <code>tailscale serve</code> delante de un Ollama que solo escucha en localhost, recibe <strong>403 Forbidden</strong> en cada petición. No es culpa de Tailscale. Cuando Ollama escucha en una dirección de loopback, su <code>allowedHostsMiddleware</code> comprueba la cabecera <code>Host</code> de la petición. Solo acepta <code>localhost</code>, el nombre de host de la propia máquina, nombres que terminan en <code>.localhost</code>, <code>.local</code> o <code>.internal</code>, y las IP de loopback, privadas o de interfaces locales. Esa comprobación protege frente al DNS rebinding desde sitios web. Serve transmite <code>&lt;machine&gt;.&lt;tailnet&gt;.ts.net</code>, que no está en la lista. Puede verlo en el propio servidor: <code>curl http://127.0.0.1:11434/api/version</code> responde, mientras que <code>curl -H "Host: gpu-box.example.ts.net" http://127.0.0.1:11434/api/version</code> recibe 403. Cuando Ollama escucha en una dirección que no es de loopback, se salta esta comprobación.</p>
+
+<h3>Solución 1 (cualquier sistema): vincular Ollama solo a la dirección de Tailscale</h3>
+<ol>
+  <li>Obtenga la dirección IPv4 del servidor en la tailnet: <code>tailscale ip -4</code> (por ejemplo <code>100.101.102.103</code>).</li>
+  <li>Defina <code>OLLAMA_HOST=100.101.102.103:11434</code> como describen las preguntas frecuentes de Ollama. Linux: <code>sudo systemctl edit ollama.service</code>, añada <code>Environment="OLLAMA_HOST=100.101.102.103:11434"</code> bajo <code>[Service]</code> y después <code>sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart ollama</code>. Aplicación de macOS: <code>launchctl setenv OLLAMA_HOST "100.101.102.103:11434"</code> y luego cierre y vuelva a abrir Ollama. Windows: cierre Ollama, defina <code>OLLAMA_HOST</code> en «Editar las variables de entorno de esta cuenta» y después inícielo desde el menú Inicio. Deje desactivado el interruptor «Expose Ollama to the network» de la aplicación.</li>
+  <li>Compruebe en qué escucha realmente (Linux <code>ss -tlnp | grep 11434</code>, macOS <code>lsof -nP -iTCP:11434 -sTCP:LISTEN</code>, Windows <code>netstat -ano | findstr :11434</code>). Debe ver la dirección 100.x, no <code>0.0.0.0</code> ni <code>*</code>.</li>
+  <li>Los clientes usan <code>http://100.101.102.103:11434</code>, o el nombre MagicDNS de la máquina, como <code>http://gpu-box:11434</code>. Para la CLI de Ollama en otro ordenador: <code>OLLAMA_HOST=http://gpu-box:11434 ollama list</code>.</li>
+</ol>
+<p><strong>Dos efectos secundarios.</strong> (1) <code>localhost:11434</code> deja de responder en el propio servidor. Apunte también las herramientas locales a la dirección 100.x, por ejemplo <code>OLLAMA_HOST=100.101.102.103:11434 ollama run ...</code>, y la <code>OLLAMA_BASE_URL</code> de Open WebUI en la misma máquina. (2) Si Ollama arranca antes de que Tailscale tenga su dirección, la vinculación falla. La unidad de Linux que escribe el instalador de Ollama tiene <code>Restart=always</code> y <code>RestartSec=3</code>, así que sigue reintentando hasta que se vincula. En macOS y Windows, reinicie Ollama cuando Tailscale esté conectado.</p>
+
+<h3>Solución 2 (Linux con ufw): escuchar en todas partes, pero dejar entrar solo a la tailnet</h3>
+<p>Así <code>localhost:11434</code> sigue funcionando. Defina <code>OLLAMA_HOST=0.0.0.0:11434</code> (como arriba) y después:</p>
+<pre>sudo ufw allow OpenSSH            # first, if you manage this box over SSH
+sudo ufw default deny incoming
+sudo ufw allow in on tailscale0 to any port 11434 proto tcp
+sudo ufw enable
+sudo ufw status verbose            # no other rule should allow 11434</pre>
+<p>(Los comentarios significan: la primera línea va primero si administra esta máquina por SSH; y en el estado ninguna otra regla debería permitir 11434.) Esto cubre Ollama instalado de forma nativa. Si Ollama se ejecuta en Docker con un puerto publicado, ufw no se aplica: Docker escribe sus propias reglas de cortafuegos (vea <a href="../docker-ollama.html">Docker can't reach Ollama (en inglés)</a>).</p>
+
+<p><strong>En ambos casos:</strong> por defecto, cada dispositivo de su tailnet puede llegar a todos los demás. Si ha compartido la máquina con otras personas, o tiene dispositivos en los que confía menos, limite el puerto 11434 a sus propios dispositivos en la política de acceso de la tailnet. Para exigir además una clave a las aplicaciones, ponga delante un <a href="../ollama-api-key.html">proxy con clave Bearer (en inglés)</a>.</p>
+
+<h2 id="lan">D. Solo en la misma red doméstica: red local más una regla de cortafuegos</h2>
+<p>Esto está bien en una red doméstica de confianza. No lo está en el wifi de una oficina, residencia, hotel o cafetería: cualquiera en la red, incluidos los invitados, tiene su Ollama sin inicio de sesión.</p>
+<ol>
+  <li>Defina <code>OLLAMA_HOST=0.0.0.0:11434</code> (los pasos son los de la solución 1, con <code>0.0.0.0</code>) o active «Expose Ollama to the network» en la aplicación. Cierre Ollama por completo y vuelva a abrirlo.</li>
+  <li>Limite quién puede conectarse:
+    <ul>
+      <li><strong>Linux (ufw):</strong> <code>sudo ufw allow from 192.168.1.0/24 to any port 11434 proto tcp</code> (con su propia subred) junto con <code>default deny incoming</code>, como arriba.</li>
+      <li><strong>Windows:</strong> cuando Windows pregunte si permite Ollama, permita solo <em>Redes privadas</em>, y asegúrese de que el perfil de su red doméstica sea Privada. O bien, en un PowerShell de administrador:
+<pre>New-NetFirewallRule -DisplayName "Ollama LAN only" -Direction Inbound -Protocol TCP -LocalPort 11434 -RemoteAddress LocalSubnet -Profile Private -Action Allow</pre>
+      En Windows las reglas de permiso se suman, así que abra también <em>Firewall de Windows Defender → Configuración avanzada → Reglas de entrada</em> y elimine o restrinja cualquier regla antigua de Ollama que permita redes públicas o cualquier dirección.</li>
+      <li><strong>macOS:</strong> el cortafuegos integrado permite o bloquea por aplicación, no por subred. En un Mac, use la opción A o C.</li>
+    </ul>
+  </li>
+  <li>Nunca añada un reenvío de puerto para 11434 en el router.</li>
+</ol>
+<p><strong>Pruébelo:</strong> desde otro dispositivo de la red, <code>curl http://&lt;server LAN IP&gt;:11434/api/version</code> (con la IP local del servidor) debería responder. Desde un móvil con datos móviles (wifi desactivado), la misma dirección no debe responder.</p>
+
+<h2>LM Studio</h2>
+<p>LM Studio tiene sus propios interruptores en <em>Developer → Server Settings</em>. Desde la <strong>0.4.0</strong>, active <strong>Require Authentication</strong> antes de <strong>Serve on Local Network</strong>, cree un token en <em>Manage Tokens</em> solo con los permisos que necesita el cliente, y haga que los clientes envíen <code>Authorization: Bearer &lt;token&gt;</code>. La autenticación está desactivada por defecto. Deje <strong>Enable CORS</strong> desactivado salvo que una página web lo necesite de verdad (la <a href="../ollama-origins-check.html">comprobación del navegador (en inglés)</a> también prueba el puerto 1234). Las opciones A, C y D funcionan igual con el puerto 1234, por ejemplo <code>ssh -N -L 1234:127.0.0.1:1234 you@gpu-box</code>.</p>
+
+<h2>Compruebe el resultado</h2>
+<p>El script gratuito <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> señala los puertos de IA de una máquina a los que se puede llegar desde la red, y comprueba su versión de Ollama, <code>OLLAMA_ORIGINS</code> y los puertos publicados de Docker. Solo lee y no envía nada fuera de la máquina. Después, compruebe las versiones con el <a href="../index.html">comprobador de CVE (en inglés)</a>. La lista de comprobación para asegurar Ollama está en <a href="secure-ollama.html">¿Está expuesto mi Ollama?</a></p>
+
+<h2>¿Prefiere que se lo revisen?</h2>
+<p>MV2 de Munim, Inc. ofrece una <strong>revisión de IA local de 49 USD</strong> para una máquina, o una <strong>revisión para oficinas pequeñas de 199 USD</strong> para hasta 5 máquinas o un servidor compartido de Ollama u Open WebUI. Recibe un informe escrito de lo que está expuesto, es arriesgado o va lento y qué arreglar primero, con los comandos exactos para su sistema operativo y modelos recomendados que caben en su GPU. El informe está en inglés. <a href="../sample-report.html">Vea un informe de ejemplo (en inglés)</a>. <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">Pague 49 USD</a> o <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">pague 199 USD</a> en Stripe y después envíe a <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a> la salida de <code>python3 local_ai_checkup.py --json</code>, su sistema operativo y para qué lo usa. MV2 nunca pide contraseñas, claves ni acceso remoto.</p>
+
+<footer>
+  <p>Información técnica general, no una certificación de seguridad ni asesoramiento profesional. Pruebe solo máquinas que sean suyas o que esté autorizado a administrar. Comprobado el 12 de octubre de 2026. Las correcciones (también de la traducción) son bienvenidas como issues en <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a>.</p>
+  <p>Por MV2 de Munim, Inc. Traducido del inglés con IA.</p>
+</footer>
+</body>
+</html>

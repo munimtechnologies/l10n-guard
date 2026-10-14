@@ -148,15 +148,20 @@ class Gettext(unittest.TestCase):
 SRC_HTML = ('<html lang="en"><body><p>Run <code>ollama serve</code> on port 11434.</p>'
             '<pre>docker run -p 127.0.0.1:11434:11434 ollama/ollama</pre>'
             '<a href="https://buy.stripe.com/x">Pay</a> <a href="other.html">More</a></body></html>')
+GOOD_DE_HTML = ('<html lang="de"><body><p>Führen Sie <code>ollama serve</code> auf Port 11434 aus.</p>'
+                '<pre>docker run -p 127.0.0.1:11434:11434 ollama/ollama</pre>'
+                '<a href="https://buy.stripe.com/x">Zahlen</a> <a href="../other.html">Mehr</a>'
+                '</body></html>')
+
+
+def _alternates(*langs):
+    return "".join('<link rel="alternate" hreflang="%s" href="https://example.org/%s/a.html">'
+                   % (lang, lang) for lang in langs)
 
 
 class Documents(unittest.TestCase):
     def test_good_html(self):
-        tgt = ('<html lang="de"><body><p>Führen Sie <code>ollama serve</code> auf Port 11434 aus.</p>'
-               '<pre>docker run -p 127.0.0.1:11434:11434 ollama/ollama</pre>'
-               '<a href="https://buy.stripe.com/x">Zahlen</a> <a href="../other.html">Mehr</a>'
-               '</body></html>')
-        self.assertEqual(g.check_document(SRC_HTML, tgt), [])
+        self.assertEqual(g.check_document(SRC_HTML, GOOD_DE_HTML), [])
 
     def test_bad_html(self):
         tgt = ('<html lang="en"><body><p>Führen Sie <code>ollama dienen</code> aus.</p>'
@@ -176,43 +181,97 @@ class Documents(unittest.TestCase):
         self.assertEqual(codes(g.check_document(src, bad, "md"), g.ERROR),
                          {"code-block-changed", "inline-code-missing", "link-missing"})
 
+    def test_hreflang_cluster(self):
+        head = "<html lang=\"%s\"><head>%s</head>"
+        src = head % ("en", _alternates("en", "de", "ja")) + SRC_HTML[16:]
+        same = head % ("de", _alternates("ja", "de", "en")) + GOOD_DE_HTML[16:]
+        self.assertEqual(g.check_document(src, same), [])
+        short = head % ("de", _alternates("en", "de")) + GOOD_DE_HTML[16:]
+        problems = g.check_document(src, short)
+        self.assertEqual([(p["code"], p["level"]) for p in problems], [("hreflang", g.WARNING)])
+        self.assertIn("missing ja", problems[0]["message"])
 
-EXAMPLES = os.path.join(HERE, "examples", "secure-ollama")
+    def test_expected_lang(self):
+        self.assertEqual(g.check_document(SRC_HTML, GOOD_DE_HTML, "html", "de"), [])
+        pt = GOOD_DE_HTML.replace('lang="de"', 'lang="pt-BR"')
+        self.assertEqual(g.check_document(SRC_HTML, pt, "html", "pt_br"), [])
+        problems = g.check_document(SRC_HTML, GOOD_DE_HTML, "html", "fr")
+        self.assertEqual([(p["code"], p["level"]) for p in problems], [("lang", g.WARNING)])
 
 
-@unittest.skipUnless(os.path.exists(os.path.join(EXAMPLES, "en.html")), "examples not present")
+def _write(folder, name, text):
+    path = os.path.join(folder, *name.split("/"))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    return path
+
+
+class Folders(unittest.TestCase):
+    def _site(self, d):
+        _write(d, "site/guide.html", SRC_HTML)
+        _write(d, "site/locales/app.json", json.dumps({"hi": "Hi {{name}}"}))
+        _write(d, "site/de/guide.html", GOOD_DE_HTML.replace('lang="de"', 'lang="fr"'))
+        _write(d, "site/de/locales/app.json", json.dumps({"hi": "Hallo"}))
+        _write(d, "site/de/extra.html", GOOD_DE_HTML)
+        _write(d, "site/de/notes.txt", "not checked")
+        return os.path.join(d, "site"), os.path.join(d, "site", "de")
+
+    def test_check_dir(self):
+        with tempfile.TemporaryDirectory() as d:
+            source, target = self._site(d)
+            problems, stats = g.check_dir(source, target)
+        self.assertEqual(stats, {"checked": 2, "unmatched": 1})
+        found = sorted((p["code"], p["level"], p["key"]) for p in problems)
+        self.assertEqual(found, [("lang", g.WARNING, "guide.html"),
+                                 ("no-source", g.WARNING, "extra.html"),
+                                 ("placeholder-missing", g.ERROR, "locales/app.json hi")])
+
+    def test_cli_dir(self):
+        with tempfile.TemporaryDirectory() as d:
+            source, target = self._site(d)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(g.run(["dir", source, target]), 1)
+            self.assertIn("2 file(s) checked, 1 without a source file", out.getvalue())
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(g.run(["dir", source, os.path.join(d, "missing")]), 2)
+
+
+EXAMPLES = os.path.join(HERE, "examples")
+
+
+@unittest.skipUnless(os.path.isdir(EXAMPLES), "examples not present")
 class RealTranslations(unittest.TestCase):
-    """The five translations of munimv2.github.io/secure-ollama.html keep every
-    command, code block and external link (including both payment links)."""
+    """Translations of munimv2.github.io pages (examples/<page>/<lang>.html) keep
+    every command, code block and external link, both payment links included."""
 
     def test_no_errors(self):
-        with open(os.path.join(EXAMPLES, "en.html"), encoding="utf-8") as f:
-            src = f.read()
         checked = 0
-        for lang in ("de", "es", "fr", "ja", "pt-br"):
-            path = os.path.join(EXAMPLES, lang + ".html")
-            if not os.path.exists(path):
+        for page in sorted(os.listdir(EXAMPLES)):
+            folder = os.path.join(EXAMPLES, page)
+            source = os.path.join(folder, "en.html")
+            if not os.path.isfile(source):
                 continue
-            with open(path, encoding="utf-8") as f:
-                problems = g.check_document(src, f.read())
-            errors = [p for p in problems if p["level"] == g.ERROR]
-            self.assertEqual(errors, [], lang)
-            checked += 1
+            src = g._read(source)
+            for name in sorted(os.listdir(folder)):
+                if name == "en.html" or not name.endswith(".html"):
+                    continue
+                lang = name[:-len(".html")]
+                problems = g.check_document(src, g._read(os.path.join(folder, name)), "html", lang)
+                errors = [p for p in problems if p["level"] == g.ERROR]
+                self.assertEqual(errors, [], "%s/%s" % (page, name))
+                checked += 1
         self.assertGreater(checked, 0)
 
 
 class Cli(unittest.TestCase):
-    def _write(self, folder, name, text):
-        path = os.path.join(folder, name)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(text)
-        return path
-
     def test_json_exit_codes(self):
         with tempfile.TemporaryDirectory() as d:
-            src = self._write(d, "en.json", json.dumps({"hi": "Hi {{name}}"}))
-            ok = self._write(d, "de.json", json.dumps({"hi": "Hallo {{name}}"}))
-            bad = self._write(d, "fr.json", json.dumps({"hi": "Salut"}))
+            src = _write(d, "en.json", json.dumps({"hi": "Hi {{name}}"}))
+            ok = _write(d, "de.json", json.dumps({"hi": "Hallo {{name}}"}))
+            bad = _write(d, "fr.json", json.dumps({"hi": "Salut"}))
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 self.assertEqual(g.run(["json", src, ok]), 0)
@@ -221,7 +280,7 @@ class Cli(unittest.TestCase):
 
     def test_po_json_output(self):
         with tempfile.TemporaryDirectory() as d:
-            path = self._write(d, "pl.po", PO)
+            path = _write(d, "pl.po", PO)
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 self.assertEqual(g.run(["--json", "po", path]), 1)
@@ -231,7 +290,7 @@ class Cli(unittest.TestCase):
 
     def test_bad_input(self):
         with tempfile.TemporaryDirectory() as d:
-            src = self._write(d, "en.json", "{not json")
+            src = _write(d, "en.json", "{not json")
             err = io.StringIO()
             with contextlib.redirect_stderr(err):
                 self.assertEqual(g.run(["json", src, src]), 2)

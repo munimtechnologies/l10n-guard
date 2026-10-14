@@ -6,14 +6,14 @@ branding:
   color: blue
 inputs:
   kind:
-    description: "html, md, json or po"
+    description: "html, md, json, po, or dir (a whole locale folder against its source folder)"
     required: true
   source:
-    description: "Source-language file (not used for po)"
+    description: "Source-language file or folder (not used for po)"
     required: false
     default: ""
   target:
-    description: "Translated file"
+    description: "Translated file or folder"
     required: true
   strict:
     description: "Treat warnings as errors (true/false)"

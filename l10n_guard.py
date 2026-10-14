@@ -3,12 +3,14 @@
 
 Checks a translation against its source and reports what changed that should
 not have: placeholders, HTML tags, code blocks, inline code, links, numbers,
-plural forms. Standard library only; reads files, never sends anything.
+plural forms, hreflang alternates. Standard library only; reads files, never
+sends anything.
 
   python3 l10n_guard.py html  source.html  translated.html
   python3 l10n_guard.py json  en.json      de.json
   python3 l10n_guard.py po    de.po
   python3 l10n_guard.py md    README.md    README.de.md
+  python3 l10n_guard.py dir   site         site/de
 
 Exit code 0 = no errors, 1 = errors found, 2 = bad input.
 Made by MV2 of Munim, Inc. with AI agents. MIT licence.
@@ -16,12 +18,13 @@ Made by MV2 of Munim, Inc. with AI agents. MIT licence.
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -305,6 +308,7 @@ class _DocScan(HTMLParser):
         self.pre = []
         self.code = []
         self.links = []
+        self.alternates = []
         self.text = []
         self._pre_depth = 0
         self._code_depth = 0
@@ -328,6 +332,10 @@ class _DocScan(HTMLParser):
             self._code_depth += 1
         elif tag == "a" and attrs.get("href"):
             self.links.append(attrs["href"].strip())
+        elif tag == "link" and attrs.get("hreflang") and \
+                "alternate" in (attrs.get("rel") or "").lower().split():
+            self.alternates.append((attrs["hreflang"].strip().lower(),
+                                    (attrs.get("href") or "").strip()))
 
     def handle_endtag(self, tag):
         if tag in ("script", "style") and self._skip_depth:
@@ -369,6 +377,7 @@ def _scan_md(text):
         pass
     scan = Scan()
     scan.lang = None
+    scan.alternates = []
     scan.pre = [m.group(2) for m in _FENCE_RE.finditer(text)]
     rest = _FENCE_RE.sub("\n", text)
     scan.code = _INLINE_MD_RE.findall(rest)
@@ -384,8 +393,16 @@ def _is_absolute(href):
     return bool(re.match(r"(?i)^(https?:|mailto:|tel:)", href))
 
 
-def check_document(source_text, target_text, kind="html"):
-    """Compares a translated HTML or Markdown document with its source."""
+def _lang_key(tag):
+    return tag.strip().replace("_", "-").lower()
+
+
+def check_document(source_text, target_text, kind="html", lang=None):
+    """Compares a translated HTML or Markdown document with its source.
+
+    lang, if given, is the language the translation should declare in
+    <html lang> (case and _/- ignored, so pt-br and pt_BR match pt-BR).
+    """
     scan = _scan_html if kind == "html" else _scan_md
     src, tgt = scan(source_text), scan(target_text)
     problems = []
@@ -394,6 +411,9 @@ def check_document(source_text, target_text, kind="html"):
             problems.append(issue(WARNING, "lang", "translated page has no <html lang>"))
         elif src.lang and tgt.lang.lower() == src.lang.lower():
             problems.append(issue(WARNING, "lang", "<html lang> is still %r" % tgt.lang))
+        elif lang and _lang_key(tgt.lang) != _lang_key(lang):
+            problems.append(issue(WARNING, "lang", "<html lang> is %r, expected %r"
+                                  % (tgt.lang, lang)))
     if len(src.pre) != len(tgt.pre):
         problems.append(issue(ERROR, "code-block-count", "%d code blocks in source, %d in translation"
                               % (len(src.pre), len(tgt.pre))))
@@ -415,6 +435,15 @@ def check_document(source_text, target_text, kind="html"):
         problems.append(issue(ERROR, "link-missing", "external link missing or changed: %s" % href))
     for href in sorted(tgt_abs - src_abs):
         problems.append(issue(WARNING, "link-extra", "external link not in source: %s" % href))
+    # Every page in a language cluster should list the same hreflang alternates,
+    # or search engines ignore the cluster.
+    if src.alternates or tgt.alternates:
+        missing = sorted(set(src.alternates) - set(tgt.alternates))
+        extra = sorted(set(tgt.alternates) - set(src.alternates))
+        if missing or extra:
+            parts = ["missing %s %s" % a for a in missing] + ["extra %s %s" % a for a in extra]
+            problems.append(issue(WARNING, "hreflang", "hreflang alternates differ from source: %s"
+                                  % "; ".join(parts)))
     src_nums = set(_NUMBER_RE.findall(" ".join(src.text)))
     tgt_nums = set(_NUMBER_RE.findall(" ".join(tgt.text)))
     tgt_digits = {re.sub(r"[.,]", "", n) for n in tgt_nums}
@@ -432,6 +461,50 @@ def _first_diff(a, b):
     return b[min(len(a), len(b)):][:30] or a[min(len(a), len(b)):][:30]
 
 
+# ----------------------------------------------------------- locale folders
+
+_DOC_KINDS = {".html": "html", ".htm": "html", ".md": "md", ".markdown": "md", ".json": "json"}
+# "de", "ja", "pt-br", "zh_Hans": folder names that are language tags.
+_LANG_DIR_RE = re.compile(r"^[A-Za-z]{2}(?:[-_][A-Za-z0-9]{2,8})?$")
+
+
+def check_dir(source_dir, target_dir):
+    """Checks every HTML, Markdown and JSON file under target_dir against the
+    file with the same relative path under source_dir (for a site: "site" and
+    "site/de"). Returns (issues, stats). Each issue's key starts with the
+    file's relative path.
+    """
+    if not os.path.isdir(source_dir) or not os.path.isdir(target_dir):
+        raise ValueError("not a directory: %s" % (target_dir if os.path.isdir(source_dir)
+                                                  else source_dir))
+    base = os.path.basename(os.path.normpath(target_dir))
+    lang = base if _LANG_DIR_RE.match(base) else None
+    problems = []
+    stats = {"checked": 0, "unmatched": 0}
+    for root, dirs, files in os.walk(target_dir):
+        dirs.sort()
+        for name in sorted(files):
+            kind = _DOC_KINDS.get(os.path.splitext(name)[1].lower())
+            if kind is None:
+                continue
+            path = os.path.join(root, name)
+            rel = os.path.relpath(path, target_dir).replace(os.sep, "/")
+            source = os.path.join(source_dir, *rel.split("/"))
+            if not os.path.isfile(source):
+                stats["unmatched"] += 1
+                problems.append(issue(WARNING, "no-source", "no source file at %s" % source, rel))
+                continue
+            if kind == "json":
+                found = check_catalog(json.loads(_read(source)), json.loads(_read(path)))
+            else:
+                found = check_document(_read(source), _read(path), kind, lang)
+            for p in found:
+                p["key"] = "%s %s" % (rel, p["key"]) if "key" in p else rel
+                problems.append(p)
+            stats["checked"] += 1
+    return problems, stats
+
+
 # ------------------------------------------------------------------------- CLI
 
 def _read(path):
@@ -445,7 +518,7 @@ def run(argv=None):
     parser.add_argument("--json", action="store_true", help="print issues as JSON")
     parser.add_argument("--strict", action="store_true", help="treat warnings as errors")
     sub = parser.add_subparsers(dest="kind", required=True)
-    for kind in ("html", "md", "json"):
+    for kind in ("html", "md", "json", "dir"):
         p = sub.add_parser(kind)
         p.add_argument("source")
         p.add_argument("target")
@@ -459,6 +532,8 @@ def run(argv=None):
             problems = check_document(_read(args.source), _read(args.target), args.kind)
         elif args.kind == "json":
             problems = check_catalog(json.loads(_read(args.source)), json.loads(_read(args.target)))
+        elif args.kind == "dir":
+            problems, stats = check_dir(args.source, args.target)
         else:
             problems, stats = check_po(_read(args.file))
     except (OSError, ValueError) as exc:
@@ -473,9 +548,11 @@ def run(argv=None):
         for p in problems:
             where = " [%s]" % p["key"] if "key" in p else ""
             print("%s %s%s: %s" % (p["level"].upper(), p["code"], where, p["message"]))
-        if stats:
+        if stats and args.kind == "po":
             print("%(entries)d entries: %(translated)d translated, %(fuzzy)d fuzzy, "
                   "%(untranslated)d untranslated" % stats)
+        elif stats:
+            print("%(checked)d file(s) checked, %(unmatched)d without a source file" % stats)
         print("%d error(s), %d warning(s)" % (len(errors), len(problems) - len(errors)))
     return 1 if errors else 0
 

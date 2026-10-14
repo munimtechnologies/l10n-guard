@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chave de API do Ollama: o seu Ollama local não tem. Como exigir uma (Caddy ou nginx) e conectar Open WebUI, n8n e clientes da OpenAI</title>
+<meta name="description" content="OLLAMA_API_KEY é para o ollama.com, não para o seu próprio servidor: a API local na porta 11434 não tem login. Como exigir uma chave de API Bearer com Caddy ou nginx (ou usar o Open WebUI como portão), testar e conectar Open WebUI, n8n, o SDK da OpenAI e a biblioteca Python ollama. Por MV2 da Munim, Inc.">
+<link rel="canonical" href="https://munimv2.github.io/pt-br/ollama-api-key.html">
+<link rel="alternate" hreflang="en" href="https://munimv2.github.io/ollama-api-key.html">
+<link rel="alternate" hreflang="de" href="https://munimv2.github.io/de/ollama-api-key.html">
+<link rel="alternate" hreflang="es" href="https://munimv2.github.io/es/ollama-api-key.html">
+<link rel="alternate" hreflang="fr" href="https://munimv2.github.io/fr/ollama-api-key.html">
+<link rel="alternate" hreflang="ja" href="https://munimv2.github.io/ja/ollama-api-key.html">
+<link rel="alternate" hreflang="pt-BR" href="https://munimv2.github.io/pt-br/ollama-api-key.html">
+<link rel="alternate" hreflang="x-default" href="https://munimv2.github.io/ollama-api-key.html">
+<style>
+  body { font: 16px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1.2rem; color: #1b1b1b; background: #fff; }
+  h1 { font-size: 1.6rem; line-height: 1.25; }
+  h2 { font-size: 1.25rem; margin-top: 2rem; }
+  code, pre { font: 0.9rem/1.45 ui-monospace, Consolas, monospace; background: #f3f3f3; }
+  code { padding: 0 0.2rem; }
+  pre { padding: 0.7rem; overflow-x: auto; }
+  nav, .by { color: #555; }
+  footer { margin-top: 2.5rem; color: #555; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<nav><a href="../index.html">Verificador de CVEs (em inglês)</a> · <a href="secure-ollama.html">Proteger o Ollama</a> · <a href="ollama-remote-access.html">Usar o Ollama remotamente</a> · <strong>Chave de API do Ollama</strong> · Idiomas: <a href="../ollama-api-key.html" hreflang="en">English</a> · <a href="../de/ollama-api-key.html" hreflang="de">Deutsch</a> · <a href="../es/ollama-api-key.html" hreflang="es">Español</a> · <a href="../fr/ollama-api-key.html" hreflang="fr">Français</a> · <a href="../ja/ollama-api-key.html" hreflang="ja">日本語</a> · Português (Brasil)</nav>
+<h1>Chave de API do Ollama: o seu Ollama local não tem nenhuma. Veja como exigir uma</h1>
+<p class="by">Por MV2 da Munim, Inc. Conferido em 12 de outubro de 2026 com a <a href="https://docs.ollama.com/api/authentication">documentação de autenticação do Ollama</a>, o <a href="https://docs.ollama.com/faq">FAQ do Ollama</a>, a <a href="https://docs.n8n.io/integrations/builtin/credentials/ollama/">documentação de credenciais do Ollama no n8n</a>, a <a href="https://docs.openwebui.com/reference/api-endpoints/">documentação da API do Open WebUI</a> e a <a href="https://caddyserver.com/docs/caddyfile/matchers">documentação de matchers do Caddy</a>. Apenas para as suas próprias máquinas. Esta página foi traduzida com IA a partir do <a href="../ollama-api-key.html" hreflang="en">original em inglês</a>; em caso de divergência, vale o original.</p>
+
+<h2>A resposta curta</h2>
+<ul>
+  <li><strong><code>OLLAMA_API_KEY</code> é para o ollama.com</strong>, a nuvem do Ollama. Você a cria nas configurações do ollama.com e a envia para <code>https://ollama.com/api</code>. Ela não protege o seu próprio servidor.</li>
+  <li><strong>O seu próprio Ollama não tem login.</strong> A documentação do Ollama diz: "The local API at <code>http://localhost:11434</code> does not require authentication." (a API local não exige autenticação). Não há nenhuma configuração que ative um login. Qualquer pessoa que alcance a porta 11434 pode rodar prompts na sua GPU e baixar, criar ou apagar modelos.</li>
+  <li><strong>Para exigir uma chave, coloque um portão na frente:</strong> mantenha o Ollama em <code>127.0.0.1</code> e faça de um proxy reverso que verifica um cabeçalho <code>Authorization: Bearer &lt;key&gt;</code> a única entrada. É esse cabeçalho que clientes no estilo OpenAI, o n8n e o Open WebUI enviam quando você preenche um campo "API key".</li>
+</ul>
+<p>Se o Ollama só é usado na máquina onde roda, você não precisa de nada disso. Deixe-o em <code>127.0.0.1</code>; o <a href="secure-ollama.html">checklist de proteção</a> mostra como confirmar.</p>
+
+<h2>Opção A: já usa o Open WebUI? Use-o como portão</h2>
+<p>O Open WebUI repassa requisições ao Ollama em <code>/ollama/</code> e verifica as próprias chaves de API. O Ollama continua interno, e você não precisa de software extra.</p>
+<ol>
+  <li>Crie uma chave no Open WebUI em <strong>Settings &gt; Account</strong> (na interface em português, "Configurações" e "Conta"; as chaves começam com <code>sk-</code>). Se a opção não aparecer, um administrador precisa liberar as chaves de API antes; veja a documentação de chaves de API do Open WebUI.</li>
+  <li>Chame a API nativa do Ollama pelo Open WebUI:
+<pre>curl https://webui.example.home/ollama/api/tags -H "Authorization: Bearer sk-..."</pre>
+  ou use o endpoint compatível com a OpenAI do Open WebUI, <code>/api/chat/completions</code>.</li>
+  <li>No n8n, defina a Base URL da credencial do Ollama como <code>https://webui.example.home/ollama</code> e a API Key como a chave <code>sk-</code>. A documentação do n8n cita o Open WebUI como exemplo dessa configuração.</li>
+</ol>
+<p>A chave leva as permissões daquele usuário do Open WebUI, então crie um usuário separado para cada app e mantenha o Open WebUI atualizado (veja os <a href="../openwebui.html">avisos de segurança do Open WebUI (em inglês)</a>).</p>
+
+<h2>Opção B: um pequeno proxy que verifica uma chave</h2>
+<h3>1. Mantenha o Ollama local e crie uma chave</h3>
+<p>O Ollama precisa escutar em <code>127.0.0.1:11434</code> (o padrão). Se você definiu <code>OLLAMA_HOST=0.0.0.0</code> antes, desfaça isso como no passo 2 do <a href="secure-ollama.html">checklist</a>. Senão, qualquer um pode pular o proxy indo direto à porta 11434. Depois gere uma chave aleatória longa:</p>
+<pre>openssl rand -hex 32
+# or
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"</pre>
+<p>(Basta um dos dois comandos.)</p>
+
+<h3>2a. Caddy</h3>
+<p>O Caddy obtém sozinho um certificado HTTPS quando <code>ollama.example.com</code> é um domínio real que aponta para esta máquina. Troque o domínio e <code>PASTE_YOUR_KEY_HERE</code> (pela sua chave):</p>
+<pre>ollama.example.com {
+    @key header Authorization "Bearer PASTE_YOUR_KEY_HERE"
+    handle @key {
+        reverse_proxy 127.0.0.1:11434 {
+            header_up Host localhost:11434
+            header_up -Authorization
+        }
+    }
+    handle {
+        respond "Missing or wrong API key" 401
+    }
+}</pre>
+<ul>
+  <li>O matcher <code>header</code> compara de forma exata, então só passa <code>Bearer</code>, um espaço e a sua chave exata. Para dar a cada pessoa ou app a própria chave, adicione mais linhas <code>header Authorization "Bearer ..."</code> num bloco <code>@key { ... }</code>. O Caddy combina com OU os valores do mesmo cabeçalho.</li>
+  <li><code>header_up Host localhost:11434</code> segue o exemplo de proxy do FAQ do Ollama; o Ollama pode recusar requisições que chegam com outros valores de Host. <code>header_up -Authorization</code> impede que a sua chave seja repassada ao Ollama.</li>
+  <li>Se as respostas em streaming chegarem todas de uma vez, adicione <code>flush_interval -1</code> dentro do bloco <code>reverse_proxy</code>.</li>
+  <li>O arquivo agora guarda um segredo. Deixe-o legível só para o root e o Caddy e recarregue: <code>sudo chown root:caddy /etc/caddy/Caddyfile &amp;&amp; sudo chmod 640 /etc/caddy/Caddyfile &amp;&amp; sudo systemctl reload caddy</code></li>
+</ul>
+<p><strong>Nome só da rede local</strong> (como <code>ollama.home</code>): não existe certificado público, então use <code>tls internal</code> dentro do bloco do site e instale o certificado raiz do Caddy nos seus clientes. Ou dispense o proxy e use uma rede privada como Tailscale ou WireGuard (veja <a href="ollama-remote-access.html">Usar o Ollama remotamente</a>). Não envie a chave por <code>http://</code> sem criptografia numa rede em que você não confia; qualquer pessoa nessa rede poderia lê-la.</p>
+
+<h3>2b. nginx</h3>
+<p>Coloque isto em <code>/etc/nginx/conf.d/ollama.conf</code>. Os arquivos em <code>conf.d</code> são lidos dentro do bloco <code>http</code>, que é onde o <code>map</code> deve ficar. Use os seus próprios caminhos de certificado, por exemplo os do certbot:</p>
+<pre>map $http_authorization $ollama_key_ok {
+    default                        0;
+    "Bearer PASTE_YOUR_KEY_HERE"   1;
+}
+
+server {
+    listen 443 ssl;
+    server_name ollama.example.com;
+    ssl_certificate     /etc/letsencrypt/live/ollama.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ollama.example.com/privkey.pem;
+
+    location / {
+        if ($ollama_key_ok = 0) { return 401; }
+        proxy_pass http://127.0.0.1:11434;
+        proxy_set_header Host localhost:11434;
+        proxy_set_header Authorization "";   # don't pass the key on to Ollama
+        proxy_buffering off;                 # stream tokens as they come
+        proxy_read_timeout 600s;             # long generations
+        client_max_body_size 0;              # model uploads (ollama create)
+    }
+}</pre>
+<p>(Os comentários querem dizer, na ordem: não repassar a chave ao Ollama; enviar os tokens à medida que chegam; permitir gerações longas; permitir o envio de modelos com ollama create.) Adicione uma linha ao <code>map</code> para cada chave extra. Depois rode <code>sudo nginx -t &amp;&amp; sudo systemctl reload nginx</code> e deixe o arquivo legível só para o root (<code>sudo chmod 600 /etc/nginx/conf.d/ollama.conf</code>; o nginx o lê como root na inicialização).</p>
+
+<h3>2c. Ollama no Docker</h3>
+<p>Não dê nenhum <code>ports:</code> ao serviço <code>ollama</code> e publique só o Caddy. No Caddyfile acima, use <code>reverse_proxy ollama:11434</code>. Adicione as suas configurações de GPU de sempre ao serviço <code>ollama</code>.</p>
+<pre>services:
+  ollama:
+    image: ollama/ollama
+    volumes: [ "ollama:/root/.ollama" ]
+    # no "ports:" - only containers on this network can reach it
+  caddy:
+    image: caddy:2
+    ports: [ "80:80", "443:443" ]
+    volumes: [ "./Caddyfile:/etc/caddy/Caddyfile:ro", "caddy_data:/data" ]
+volumes:
+  ollama: {}
+  caddy_data: {}</pre>
+<p>(O comentário quer dizer: sem "ports:", só os contêineres desta rede alcançam o Ollama.)</p>
+
+<h3>3. Teste</h3>
+<pre># no key: should print 401
+curl -s -o /dev/null -w "%{http_code}\n" https://ollama.example.com/api/version
+
+# with the key: should print {"version":"..."}
+curl -H "Authorization: Bearer YOUR_KEY" https://ollama.example.com/api/version
+
+# from ANOTHER machine, straight to Ollama: should fail to connect
+curl http://&lt;server LAN IP&gt;:11434/api/version</pre>
+<p>(O esperado: sem chave, 401; com a chave, a versão; e de OUTRA máquina, direto no Ollama, a conexão deve falhar. YOUR_KEY é a sua chave e &lt;server LAN IP&gt; o IP local do servidor.) Se o último comando responder com uma versão, o proxy pode ser contornado. Confira de novo o <code>OLLAMA_HOST</code> e os <code>ports:</code> do Docker. No Linux, o ufw não bloqueia portas que o Docker publica.</p>
+
+<h2>Conecte os seus apps</h2>
+<ul>
+  <li><strong>Open WebUI</strong> em outra máquina: Admin Panel &gt; Settings &gt; Connections (nomes da interface em inglês). Adicione ou edite a conexão da API do Ollama, defina a URL como <code>https://ollama.example.com</code> e coloque a chave no campo Key (enviada como token Bearer). Se a sua versão não tiver campo de chave nas conexões do Ollama, adicione-a como conexão <em>OpenAI API</em> com a URL <code>https://ollama.example.com/v1</code> e a chave.</li>
+  <li><strong>n8n</strong>: na credencial do Ollama, defina a Base URL como <code>https://ollama.example.com</code> e a API Key como a sua chave. O n8n a envia como <code>Authorization: Bearer</code>.</li>
+  <li><strong>SDK da OpenAI e ferramentas compatíveis com a OpenAI</strong> (Continue, LibreChat e outras): defina a URL base como <code>https://ollama.example.com/v1</code> e a chave de API como a sua chave.
+<pre>from openai import OpenAI
+client = OpenAI(base_url="https://ollama.example.com/v1", api_key="YOUR_KEY")
+reply = client.chat.completions.create(
+    model="llama3.2", messages=[{"role": "user", "content": "Hello"}])
+print(reply.choices[0].message.content)</pre></li>
+  <li><strong>A biblioteca Python ollama</strong>: passe o cabeçalho você mesmo.
+<pre>from ollama import Client
+client = Client(host="https://ollama.example.com",
+                headers={"Authorization": "Bearer YOUR_KEY"})
+print(client.list())</pre></li>
+  <li><strong>O comando <code>ollama</code></strong>: na data desta verificação, não há uma forma documentada de fazê-lo enviar a sua própria chave para um host personalizado. Rode-o no próprio servidor, ou use o curl ou as bibliotecas acima.</li>
+</ul>
+
+<h2>Erros a evitar</h2>
+<ul>
+  <li><strong>O proxy está no lugar, mas a porta 11434 continua aberta.</strong> A chave só ajuda se o proxy for a única entrada; rode o terceiro teste acima.</li>
+  <li><strong>Autenticação básica para clientes de API.</strong> O exemplo do Caddy com <code>basic_auth</code> no <a href="secure-ollama.html">checklist</a> funciona para navegadores e para <code>curl -u</code>, mas clientes no estilo OpenAI, o n8n e o Open WebUI enviam <code>Authorization: Bearer</code>, e a autenticação básica os rejeita. Para clientes de API, use a verificação de chave desta página.</li>
+  <li><strong>A chave numa página da web.</strong> Qualquer coisa no JavaScript do navegador pode ser lida por quem carrega a página. Guarde as chaves em servidores e nas configurações dos apps, e mantenha o <code>OLLAMA_ORIGINS</code> restrito (<a href="../ollama-origins-check.html">verificação no navegador (em inglês)</a>).</li>
+  <li><strong>Achar que a chave resolve tudo.</strong> Quem tem a chave ainda alcança todos os endpoints, inclusive aqueles em que estavam os CVEs deste ano. Mantenha o Ollama atualizado (<a href="../ollama.html">CVEs do Ollama (em inglês)</a>, ou digite a sua versão no <a href="../index.html?product=ollama">verificador de CVEs (em inglês)</a>). Para trocar a chave, edite a configuração e recarregue o proxy.</li>
+</ul>
+
+<h2>Prefere que alguém verifique para você?</h2>
+<p>MV2 da Munim, Inc. faz uma <strong>verificação de IA local por US$ 49</strong> para uma máquina, ou uma <strong>verificação para pequenos escritórios por US$ 199</strong> para até 5 máquinas ou um servidor compartilhado de Ollama ou Open WebUI. Você recebe um relatório escrito do que está exposto, arriscado ou lento e do que corrigir primeiro, com os comandos exatos para o seu sistema operacional. O relatório é em inglês. <a href="../sample-report.html">Veja um relatório de exemplo (em inglês)</a>. <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">Pague US$ 49</a> ou <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">pague US$ 199</a> no Stripe e depois envie para <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a> a saída de <code>python3 local_ai_checkup.py --json</code> do script gratuito <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a>, o seu sistema operacional e para que você o usa. MV2 nunca pede senhas, chaves ou acesso remoto, então não envie a sua chave de API.</p>
+
+<footer>
+  <p>Informação técnica geral, não uma certificação de segurança nem consultoria profissional. Altere apenas máquinas que sejam suas ou que você tenha permissão para administrar. Conferido em 12 de outubro de 2026. Correções (inclusive da tradução) são bem-vindas como issues em <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a>.</p>
+  <p>Por MV2 da Munim, Inc. Traduzido do inglês com IA.</p>
+</footer>
+</body>
+</html>
