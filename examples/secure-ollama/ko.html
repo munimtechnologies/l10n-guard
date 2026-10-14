@@ -40,7 +40,7 @@
   <li><strong>Docker:</strong> <code>docker ps --format "{{.Names}} {{.Ports}}"</code></li>
 </ul>
 <p><code>127.0.0.1:11434</code>로 나오면 이 컴퓨터만 접속할 수 있으니 이 단계는 끝입니다. <code>0.0.0.0:11434</code>, <code>*:11434</code>, <code>[::]:11434</code>, 또는 <code>0.0.0.0:11434-&gt;11434/tcp</code> 같은 Docker 포트가 나오면 다른 컴퓨터도 접속할 수 있습니다. 확인하려면 본인의 다른 기기에서 <code>curl http://&lt;this machine's LAN IP&gt;:11434/api/version</code>(이 컴퓨터의 LAN IP로 바꿔서)을 실행해 보세요. 응답에 버전 번호가 있으면 포트가 네트워크에 열려 있는 것입니다.</p>
-<p>무료 스크립트 <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a>이 이 확인을 아래의 버전, <code>OLLAMA_ORIGINS</code>, Docker 포트 확인과 함께 대신 해 줍니다. 읽기 전용이며 컴퓨터 밖으로 아무것도 보내지 않습니다.</p>
+<p>무료 스크립트 <a href="https://github.com/munimtechnologies/local-ai-checkup">local-ai-checkup</a>이 이 확인을 아래의 버전, <code>OLLAMA_ORIGINS</code>, Docker 포트 확인과 함께 대신 해 줍니다. 읽기 전용이며 컴퓨터 밖으로 아무것도 보내지 않습니다.</p>
 
 <h2>2. 이 컴퓨터에서만 Ollama를 쓴다면: localhost에 바인드하기</h2>
 <p><code>OLLAMA_HOST</code>를 삭제하거나 <code>127.0.0.1:11434</code>로 설정하고, 앱 설정에서 "Expose Ollama to the network"가 켜져 있다면 끄세요:</p>
@@ -105,7 +105,7 @@ volumes:
 <p>Munim, Inc.의 MV2는 컴퓨터 1대를 위한 <strong>로컬 AI 상태 점검(49달러)</strong>과, 최대 5대 또는 공유 Ollama·Open WebUI 서버 1대를 위한 <strong>소규모 사무실 점검(199달러)</strong>을 제공합니다. 무엇이 노출되어 있고 무엇이 위험하거나 느린지, 무엇부터 고쳐야 하는지를 여러분의 OS에 맞는 정확한 명령, GPU에 맞는 모델 추천과 함께 보고서로 드립니다. 보고서는 영어로 작성됩니다. <a href="sample-report.html">보고서 샘플</a>을 보세요. Stripe에서 <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">49달러 결제</a> 또는 <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">199달러 결제</a> 후, <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a>으로 <code>python3 local_ai_checkup.py --json</code>의 출력, 사용 중인 OS, 용도를 이메일로 보내 주세요. MV2는 비밀번호, 키, 원격 접속을 절대 요청하지 않습니다.</p>
 
 <footer>
-  <p>일반적인 기술 정보이며 보안 인증이나 전문적인 조언이 아닙니다. 본인이 소유하거나 관리 권한이 있는 컴퓨터만 테스트하세요. 2026년 10월 12일 확인. 수정 제안(번역 관련 포함)은 <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a>의 Issue로 환영합니다.</p>
+  <p>일반적인 기술 정보이며 보안 인증이나 전문적인 조언이 아닙니다. 본인이 소유하거나 관리 권한이 있는 컴퓨터만 테스트하세요. 2026년 10월 12일 확인. 수정 제안(번역 관련 포함)은 <a href="https://github.com/munimtechnologies/local-ai-checkup/issues">github.com/munimtechnologies/local-ai-checkup</a>의 Issue로 환영합니다.</p>
   <p>Munim, Inc.의 MV2 작성. 영어 원문을 AI로 번역.</p>
 </footer>
 </body>

@@ -33,7 +33,7 @@
 <nav><a href="./">CVE checker</a> · <a href="n8n.html">n8n</a> · <a href="fit.html">Model fit calculator</a> · <a href="gpu-picks.html">Models by GPU size</a> · <a href="ollama-gpu.html">Ollama slow / not using GPU</a> · <strong>Sample health check report</strong></nav>
 <nav>This page in: English · <a href="de/sample-report.html" hreflang="de">Deutsch</a> · <a href="es/sample-report.html" hreflang="es">Español</a> · <a href="fr/sample-report.html" hreflang="fr">Français</a> · <a href="ja/sample-report.html" hreflang="ja">日本語</a> · <a href="pt-br/sample-report.html" hreflang="pt-BR">Português (Brasil)</a></nav>
 <h1>Sample report: local AI health check</h1>
-<p class="note">This is a real example. The machine is MV2's own Windows desktop, checked with <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> 0.2.1 on 10 October 2026. A paid report follows this layout, written for your machine, your OS and what you told MV2 you use local AI for.</p>
+<p class="note">This is a real example. The machine is MV2's own Windows desktop, checked with <a href="https://github.com/munimtechnologies/local-ai-checkup">local-ai-checkup</a> 0.2.1 on 10 October 2026. A paid report follows this layout, written for your machine, your OS and what you told MV2 you use local AI for.</p>
 
 <h2>Your setup</h2>
 <table>
@@ -60,7 +60,7 @@ ollama --version</pre>
 <p>Pull models only from <code>ollama.com/library</code> or publishers you trust.</p>
 
 <h3>OK: nothing is exposed to your network</h3>
-<p>Ollama answers only on 127.0.0.1:11434, and no other local AI ports are open. If you later want to use it from another device, don't set <code>OLLAMA_HOST=0.0.0.0</code> on its own. Put an authenticating reverse proxy in front and allow the port only from your own devices in Windows Defender Firewall. Steps: <a href="https://github.com/munimv2/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a>.</p>
+<p>Ollama answers only on 127.0.0.1:11434, and no other local AI ports are open. If you later want to use it from another device, don't set <code>OLLAMA_HOST=0.0.0.0</code> on its own. Put an authenticating reverse proxy in front and allow the port only from your own devices in Windows Defender Firewall. Steps: <a href="https://github.com/munimtechnologies/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a>.</p>
 
 <h2>2. Speed</h2>
 <p>A GTX 1050 has 4 GB of VRAM. After the desktop and the driver take their share, about 3.5 GB is left for a model and its context. Whatever doesn't fit runs on the CPU, which is usually several times slower.</p>

@@ -33,7 +33,7 @@
 <nav><a href="../index.html">CVE チェッカー（英語）</a> · <a href="secure-ollama.html">Ollama を締める</a> · <a href="ollama-remote-access.html">Ollama をリモートで使う</a> · <a href="ollama-api-key.html">Ollama の API キー</a> · <a href="docker-ollama.html">Docker から Ollama に届かない</a> · <strong>報告書のサンプル</strong> · 言語: <a href="../sample-report.html" hreflang="en">English</a> · <a href="../de/sample-report.html" hreflang="de">Deutsch</a> · <a href="../es/sample-report.html" hreflang="es">Español</a> · <a href="../fr/sample-report.html" hreflang="fr">Français</a> · 日本語 · <a href="../pt-br/sample-report.html" hreflang="pt-BR">Português (Brasil)</a></nav>
 <h1>報告書のサンプル: ローカル AI ヘルスチェック</h1>
 <p class="by">Munim, Inc. の MV2 による。このページは<a href="../sample-report.html" hreflang="en">英語の原文</a>から AI で翻訳したものです。内容に食い違いがある場合は原文が優先します。有料の報告書は英語で作成します。</p>
-<p class="note">これは実際の例です。対象マシンは MV2 自身の Windows デスクトップで、2026 年 10 月 10 日に <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> 0.2.1 で確認しました。有料の報告書はこの構成に沿い、お客様のマシン、OS、そして MV2 に伝えていただいたローカル AI の用途に合わせて作成します。</p>
+<p class="note">これは実際の例です。対象マシンは MV2 自身の Windows デスクトップで、2026 年 10 月 10 日に <a href="https://github.com/munimtechnologies/local-ai-checkup">local-ai-checkup</a> 0.2.1 で確認しました。有料の報告書はこの構成に沿い、お客様のマシン、OS、そして MV2 に伝えていただいたローカル AI の用途に合わせて作成します。</p>
 
 <h2>お使いの環境</h2>
 <table>
@@ -60,7 +60,7 @@ ollama --version</pre>
 <p>（コメントの意味: Windows では最新のインストーラーをダウンロードして実行し、その後バージョンを確認する。）モデルは <code>ollama.com/library</code> か、信頼できる公開元からだけ pull してください。</p>
 
 <h3>OK: ネットワークには何も公開されていない</h3>
-<p>Ollama は 127.0.0.1:11434 でのみ応答し、ほかのローカル AI のポートも開いていません。あとで別のデバイスから使いたくなっても、<code>OLLAMA_HOST=0.0.0.0</code> だけを設定するのはやめてください。認証付きのリバースプロキシを前に置き、Windows Defender ファイアウォールで自分のデバイスからだけポートを許可します。手順: <a href="https://github.com/munimv2/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a>（英語）。</p>
+<p>Ollama は 127.0.0.1:11434 でのみ応答し、ほかのローカル AI のポートも開いていません。あとで別のデバイスから使いたくなっても、<code>OLLAMA_HOST=0.0.0.0</code> だけを設定するのはやめてください。認証付きのリバースプロキシを前に置き、Windows Defender ファイアウォールで自分のデバイスからだけポートを許可します。手順: <a href="https://github.com/munimtechnologies/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a>（英語）。</p>
 
 <h2>2. 速度</h2>
 <p>GTX 1050 の VRAM は 4 GB です。デスクトップとドライバーが使う分を除くと、モデルとそのコンテキストに使えるのは約 3.5 GB です。収まらない分は CPU で動き、たいてい数倍遅くなります。</p>
@@ -98,7 +98,7 @@ ollama --version</pre>
 <p>MV2 がパスワード、キー、リモートアクセスを求めることはなく、お客様のマシンに接続することもありません。スクリプトは読み取り専用で、どこにも何も送信しません。何をメールで送るかはお客様が決めます。</p>
 
 <footer>
-  <p>一般的な技術情報であり、セキュリティ認証や専門的な助言ではありません。訂正（翻訳に関するものも含む）は <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a> の Issue で歓迎します。</p>
+  <p>一般的な技術情報であり、セキュリティ認証や専門的な助言ではありません。訂正（翻訳に関するものも含む）は <a href="https://github.com/munimtechnologies/local-ai-checkup/issues">github.com/munimtechnologies/local-ai-checkup</a> の Issue で歓迎します。</p>
   <p>Munim, Inc. の MV2 による。英語から AI で翻訳。</p>
 </footer>
 </body>

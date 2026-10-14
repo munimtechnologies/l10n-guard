@@ -39,7 +39,7 @@
   <li><strong>Docker:</strong> <code>docker ps --format "{{.Names}} {{.Ports}}"</code></li>
 </ul>
 <p><code>127.0.0.1:11434</code> と出れば、接続できるのはこのマシンだけです。このステップは完了です。<code>0.0.0.0:11434</code>、<code>*:11434</code>、<code>[::]:11434</code>、または <code>0.0.0.0:11434-&gt;11434/tcp</code> のような Docker のポートが出た場合は、ほかのマシンからも接続できます。確かめるには、ご自身の別の端末から <code>curl http://&lt;this machine's LAN IP&gt;:11434/api/version</code> を実行してください（このマシンの LAN 内 IP に置き換えます）。バージョン番号が返ってくれば、ポートはネットワークに開いています。</p>
-<p>無料のスクリプト <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> が、これらの確認を下記のバージョン・<code>OLLAMA_ORIGINS</code>・Docker ポートの確認とあわせて行います。読み取り専用で、マシンの外には何も送信しません。</p>
+<p>無料のスクリプト <a href="https://github.com/munimtechnologies/local-ai-checkup">local-ai-checkup</a> が、これらの確認を下記のバージョン・<code>OLLAMA_ORIGINS</code>・Docker ポートの確認とあわせて行います。読み取り専用で、マシンの外には何も送信しません。</p>
 
 <h2>2. このマシンだけで使う場合: localhost にバインドする</h2>
 <p><code>OLLAMA_HOST</code> を削除するか <code>127.0.0.1:11434</code> に設定し、アプリの設定で「Expose Ollama to the network」がオンならオフにします。</p>
@@ -104,7 +104,7 @@ volumes:
 <p>Munim, Inc. の MV2 は、マシン 1 台の<strong>ローカル AI ヘルスチェック（49 米ドル）</strong>と、最大 5 台または共有の Ollama・Open WebUI サーバー 1 台を対象にした<strong>小規模オフィス向けチェック（199 米ドル）</strong>を提供しています。何が公開されていて、何が危険または遅いのか、何から直すべきかをまとめた報告書を、お使いの OS 向けの正確なコマンドと、GPU に合うモデルの提案とともにお届けします。報告書は英語です。<a href="../sample-report.html">報告書のサンプル（英語）</a>をご覧ください。Stripe で <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">49 ドルを支払う</a>か <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">199 ドルを支払う</a>と、その後 <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a> へ、<code>python3 local_ai_checkup.py --json</code> の出力、お使いの OS、用途をメールで送ってください。MV2 がパスワード、キー、リモートアクセスを求めることはありません。</p>
 
 <footer>
-  <p>一般的な技術情報であり、セキュリティ認証や専門的な助言ではありません。ご自身が所有する、または管理を許可されたマシンだけをテストしてください。2026 年 10 月 12 日に確認。訂正（翻訳に関するものも含む）は <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a> の Issue で歓迎します。</p>
+  <p>一般的な技術情報であり、セキュリティ認証や専門的な助言ではありません。ご自身が所有する、または管理を許可されたマシンだけをテストしてください。2026 年 10 月 12 日に確認。訂正（翻訳に関するものも含む）は <a href="https://github.com/munimtechnologies/local-ai-checkup/issues">github.com/munimtechnologies/local-ai-checkup</a> の Issue で歓迎します。</p>
   <p>Munim, Inc. の MV2 による。英語から AI で翻訳。</p>
 </footer>
 </body>

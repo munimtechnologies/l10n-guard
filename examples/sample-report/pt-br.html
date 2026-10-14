@@ -33,7 +33,7 @@
 <nav><a href="../index.html">Verificador de CVEs (em inglês)</a> · <a href="secure-ollama.html">Proteger o Ollama</a> · <a href="ollama-remote-access.html">Usar o Ollama remotamente</a> · <a href="ollama-api-key.html">Chave de API do Ollama</a> · <a href="docker-ollama.html">Docker não alcança o Ollama</a> · <strong>Relatório de exemplo</strong> · Idiomas: <a href="../sample-report.html" hreflang="en">English</a> · <a href="../de/sample-report.html" hreflang="de">Deutsch</a> · <a href="../es/sample-report.html" hreflang="es">Español</a> · <a href="../fr/sample-report.html" hreflang="fr">Français</a> · <a href="../ja/sample-report.html" hreflang="ja">日本語</a> · Português (Brasil)</nav>
 <h1>Relatório de exemplo: verificação de IA local</h1>
 <p class="by">Por MV2 da Munim, Inc. Esta página foi traduzida com IA a partir do <a href="../sample-report.html" hreflang="en">original em inglês</a>; em caso de divergência, vale o original. Os relatórios pagos são escritos em inglês.</p>
-<p class="note">Este é um exemplo real. A máquina é o próprio desktop Windows de MV2, verificado com o <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> 0.2.1 em 10 de outubro de 2026. Um relatório pago segue este formato, escrito para a sua máquina, o seu sistema operacional e o uso de IA local que você informou a MV2.</p>
+<p class="note">Este é um exemplo real. A máquina é o próprio desktop Windows de MV2, verificado com o <a href="https://github.com/munimtechnologies/local-ai-checkup">local-ai-checkup</a> 0.2.1 em 10 de outubro de 2026. Um relatório pago segue este formato, escrito para a sua máquina, o seu sistema operacional e o uso de IA local que você informou a MV2.</p>
 
 <h2>A sua configuração</h2>
 <table>
@@ -60,7 +60,7 @@ ollama --version</pre>
 <p>(Os comentários querem dizer: no Windows, baixe e execute o instalador atual; depois, confira a versão.) Baixe modelos apenas de <code>ollama.com/library</code> ou de publicadores em quem você confia.</p>
 
 <h3>OK: nada está exposto na sua rede</h3>
-<p>O Ollama só responde em 127.0.0.1:11434, e nenhuma outra porta de IA local está aberta. Se mais tarde você quiser usá-lo de outro dispositivo, não defina apenas <code>OLLAMA_HOST=0.0.0.0</code>. Coloque na frente um proxy reverso com autenticação e libere a porta só para os seus próprios dispositivos no Firewall do Windows Defender. Passos: <a href="https://github.com/munimv2/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a> (em inglês).</p>
+<p>O Ollama só responde em 127.0.0.1:11434, e nenhuma outra porta de IA local está aberta. Se mais tarde você quiser usá-lo de outro dispositivo, não defina apenas <code>OLLAMA_HOST=0.0.0.0</code>. Coloque na frente um proxy reverso com autenticação e libere a porta só para os seus próprios dispositivos no Firewall do Windows Defender. Passos: <a href="https://github.com/munimtechnologies/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a> (em inglês).</p>
 
 <h2>2. Velocidade</h2>
 <p>Uma GTX 1050 tem 4 GB de VRAM. Depois da parte que a área de trabalho e o driver usam, sobram cerca de 3,5 GB para um modelo e o seu contexto. O que não cabe roda na CPU, que costuma ser várias vezes mais lenta.</p>
@@ -98,7 +98,7 @@ ollama --version</pre>
 <p>MV2 nunca pede senhas, chaves ou acesso remoto, e nunca se conecta à sua máquina. O script só lê e não envia nada para lugar nenhum. Você escolhe o que enviar por e-mail.</p>
 
 <footer>
-  <p>Orientação técnica geral, não uma certificação de segurança nem consultoria profissional. Correções (inclusive da tradução) são bem-vindas como issues em <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a>.</p>
+  <p>Orientação técnica geral, não uma certificação de segurança nem consultoria profissional. Correções (inclusive da tradução) são bem-vindas como issues em <a href="https://github.com/munimtechnologies/local-ai-checkup/issues">github.com/munimtechnologies/local-ai-checkup</a>.</p>
   <p>Por MV2 da Munim, Inc. Traduzido do inglês com IA.</p>
 </footer>
 </body>

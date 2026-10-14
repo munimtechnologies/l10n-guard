@@ -40,7 +40,7 @@
   <li><strong>Docker:</strong> <code>docker ps --format "{{.Names}} {{.Ports}}"</code></li>
 </ul>
 <p><code>127.0.0.1:11434</code> means only this machine can connect, and you're done with this step. <code>0.0.0.0:11434</code>, <code>*:11434</code>, <code>[::]:11434</code> or a Docker port like <code>0.0.0.0:11434-&gt;11434/tcp</code> means other machines can connect too. To confirm, run <code>curl http://&lt;this machine's LAN IP&gt;:11434/api/version</code> from another device you own. A version number in the reply means the port is open to your network.</p>
-<p>The free <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> script runs these checks for you, along with the version, <code>OLLAMA_ORIGINS</code> and Docker port checks below. It's read-only and sends nothing off the machine.</p>
+<p>The free <a href="https://github.com/munimtechnologies/local-ai-checkup">local-ai-checkup</a> script runs these checks for you, along with the version, <code>OLLAMA_ORIGINS</code> and Docker port checks below. It's read-only and sends nothing off the machine.</p>
 
 <h2>2. If only this machine needs Ollama: bind it to localhost</h2>
 <p>Remove <code>OLLAMA_HOST</code>, or set it to <code>127.0.0.1:11434</code>, and turn off "Expose Ollama to the network" in the app's Settings if it's on:</p>
@@ -105,7 +105,7 @@ volumes:
 <p>MV2 of Munim, Inc. does a <strong>$49 local AI health check</strong> for one machine, or a <strong>$199 small-office check</strong> for up to 5 machines or one shared Ollama or Open WebUI server. You get a written report of what's exposed, risky or slow and what to fix first, with exact commands for your OS, plus model picks that fit your GPU. <a href="sample-report.html">See a sample report</a>. <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">Pay $49</a> or <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">pay $199</a> on Stripe, then email <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a> the output of <code>python3 local_ai_checkup.py --json</code>, your OS, and what you use it for. MV2 never asks for passwords, keys or remote access.</p>
 
 <footer>
-  <p>General technical information, not a security certification or professional advice. Only test machines you own or are allowed to manage. Checked on 12 October 2026. Corrections are welcome as issues at <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a>.</p>
+  <p>General technical information, not a security certification or professional advice. Only test machines you own or are allowed to manage. Checked on 12 October 2026. Corrections are welcome as issues at <a href="https://github.com/munimtechnologies/local-ai-checkup/issues">github.com/munimtechnologies/local-ai-checkup</a>.</p>
   <p>Made by MV2 of Munim, Inc., with AI agents.</p>
 </footer>
 </body>

@@ -33,7 +33,7 @@
 <nav><a href="../index.html">CVE-Checker (Englisch)</a> · <a href="secure-ollama.html">Ollama absichern</a> · <a href="ollama-remote-access.html">Ollama aus der Ferne nutzen</a> · <a href="ollama-api-key.html">Ollama-API-Schlüssel</a> · <a href="docker-ollama.html">Docker erreicht Ollama nicht</a> · <strong>Beispielbericht</strong> · Sprachen: <a href="../sample-report.html" hreflang="en">English</a> · Deutsch · <a href="../es/sample-report.html" hreflang="es">Español</a> · <a href="../fr/sample-report.html" hreflang="fr">Français</a> · <a href="../ja/sample-report.html" hreflang="ja">日本語</a> · <a href="../pt-br/sample-report.html" hreflang="pt-BR">Português (Brasil)</a></nav>
 <h1>Beispielbericht: lokaler KI-Gesundheitscheck</h1>
 <p class="by">Von MV2 von Munim, Inc. Diese Seite wurde mit KI aus dem <a href="../sample-report.html" hreflang="en">englischen Original</a> übersetzt; bei Abweichungen gilt das Original. Bezahlte Berichte werden auf Englisch geschrieben.</p>
-<p class="note">Dies ist ein echtes Beispiel. Der Rechner ist MV2s eigener Windows-Desktop, geprüft mit <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> 0.2.1 am 10. Oktober 2026. Ein bezahlter Bericht folgt diesem Aufbau, geschrieben für Ihren Rechner, Ihr Betriebssystem und das, wofür Sie laut Ihrer Angabe lokale KI nutzen.</p>
+<p class="note">Dies ist ein echtes Beispiel. Der Rechner ist MV2s eigener Windows-Desktop, geprüft mit <a href="https://github.com/munimtechnologies/local-ai-checkup">local-ai-checkup</a> 0.2.1 am 10. Oktober 2026. Ein bezahlter Bericht folgt diesem Aufbau, geschrieben für Ihren Rechner, Ihr Betriebssystem und das, wofür Sie laut Ihrer Angabe lokale KI nutzen.</p>
 
 <h2>Ihr Setup</h2>
 <table>
@@ -60,7 +60,7 @@ ollama --version</pre>
 <p>(Die Kommentare bedeuten: unter Windows den aktuellen Installer herunterladen und ausführen; danach die Version prüfen.) Laden Sie Modelle nur von <code>ollama.com/library</code> oder von Anbietern, denen Sie vertrauen.</p>
 
 <h3>OK: nichts ist in Ihrem Netz erreichbar</h3>
-<p>Ollama antwortet nur auf 127.0.0.1:11434, und keine anderen Ports lokaler KI sind offen. Wenn Sie es später von einem anderen Gerät aus nutzen möchten, setzen Sie nicht einfach nur <code>OLLAMA_HOST=0.0.0.0</code>. Schalten Sie einen Reverse-Proxy mit Authentifizierung davor und erlauben Sie den Port in der Windows Defender Firewall nur für Ihre eigenen Geräte. Schritte: <a href="https://github.com/munimv2/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a> (Englisch).</p>
+<p>Ollama antwortet nur auf 127.0.0.1:11434, und keine anderen Ports lokaler KI sind offen. Wenn Sie es später von einem anderen Gerät aus nutzen möchten, setzen Sie nicht einfach nur <code>OLLAMA_HOST=0.0.0.0</code>. Schalten Sie einen Reverse-Proxy mit Authentifizierung davor und erlauben Sie den Port in der Windows Defender Firewall nur für Ihre eigenen Geräte. Schritte: <a href="https://github.com/munimtechnologies/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a> (Englisch).</p>
 
 <h2>2. Geschwindigkeit</h2>
 <p>Eine GTX 1050 hat 4 GB VRAM. Nachdem Desktop und Treiber ihren Teil genommen haben, bleiben etwa 3,5 GB für ein Modell und seinen Kontext. Was nicht passt, läuft auf der CPU, und das ist meist um ein Mehrfaches langsamer.</p>
@@ -98,7 +98,7 @@ ollama --version</pre>
 <p>MV2 fragt nie nach Passwörtern, Schlüsseln oder Fernzugriff und verbindet sich nie mit Ihrem Rechner. Das Skript liest nur und sendet nichts irgendwohin. Sie entscheiden, was Sie per E-Mail schicken.</p>
 
 <footer>
-  <p>Allgemeine technische Hinweise, keine Sicherheitszertifizierung und keine professionelle Beratung. Korrekturen (auch zur Übersetzung) sind als Issues willkommen unter <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a>.</p>
+  <p>Allgemeine technische Hinweise, keine Sicherheitszertifizierung und keine professionelle Beratung. Korrekturen (auch zur Übersetzung) sind als Issues willkommen unter <a href="https://github.com/munimtechnologies/local-ai-checkup/issues">github.com/munimtechnologies/local-ai-checkup</a>.</p>
   <p>Von MV2 von Munim, Inc. Mit KI aus dem Englischen übersetzt.</p>
 </footer>
 </body>

@@ -34,7 +34,7 @@
 <nav><a href="../index.html">CVE 검사기(영어)</a> · <a href="secure-ollama.html">Ollama 보안 점검</a> · <a href="ollama-remote-access.html">Ollama 원격으로 쓰기</a> · <a href="ollama-api-key.html">Ollama API 키</a> · <a href="docker-ollama.html">Docker에서 Ollama 연결 안 됨</a> · <strong>보고서 샘플</strong> · 언어: <a href="../sample-report.html" hreflang="en">English</a> · <a href="../de/sample-report.html" hreflang="de">Deutsch</a> · <a href="../es/sample-report.html" hreflang="es">Español</a> · <a href="../fr/sample-report.html" hreflang="fr">Français</a> · <a href="../ja/sample-report.html" hreflang="ja">日本語</a> · 한국어 · <a href="../pt-br/sample-report.html" hreflang="pt-BR">Português (Brasil)</a></nav>
 <h1>보고서 샘플: 로컬 AI 상태 점검</h1>
 <p class="by">Munim, Inc.의 MV2 작성. 이 페이지는 <a href="../sample-report.html" hreflang="en">영어 원문</a>을 AI로 번역한 것입니다. 내용이 다를 경우 원문이 우선합니다. 유료 보고서는 영어로 작성됩니다.</p>
-<p class="note">실제 예시입니다. 대상 컴퓨터는 MV2 자신의 Windows 데스크톱이며, 2026년 10월 10일에 <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> 0.2.1로 점검했습니다. 유료 보고서는 이 구성을 따르며, 고객님의 컴퓨터와 OS, 그리고 MV2에게 알려 주신 로컬 AI 용도에 맞춰 작성됩니다.</p>
+<p class="note">실제 예시입니다. 대상 컴퓨터는 MV2 자신의 Windows 데스크톱이며, 2026년 10월 10일에 <a href="https://github.com/munimtechnologies/local-ai-checkup">local-ai-checkup</a> 0.2.1로 점검했습니다. 유료 보고서는 이 구성을 따르며, 고객님의 컴퓨터와 OS, 그리고 MV2에게 알려 주신 로컬 AI 용도에 맞춰 작성됩니다.</p>
 
 <h2>사용 환경</h2>
 <table>
@@ -61,7 +61,7 @@ ollama --version</pre>
 <p>(주석의 뜻: Windows에서는 최신 설치 프로그램을 내려받아 실행하고, 그다음 버전을 확인한다.) 모델은 <code>ollama.com/library</code>나 신뢰하는 게시자에게서만 pull하세요.</p>
 
 <h3>양호: 네트워크에 노출된 것이 없음</h3>
-<p>Ollama는 127.0.0.1:11434에서만 응답하고, 다른 로컬 AI 포트도 열려 있지 않습니다. 나중에 다른 기기에서 쓰고 싶어지더라도 <code>OLLAMA_HOST=0.0.0.0</code>만 설정하지는 마세요. 인증하는 리버스 프록시를 앞에 두고, Windows Defender 방화벽에서 본인 기기에서만 포트를 허용하세요. 절차: <a href="https://github.com/munimv2/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a>(영어).</p>
+<p>Ollama는 127.0.0.1:11434에서만 응답하고, 다른 로컬 AI 포트도 열려 있지 않습니다. 나중에 다른 기기에서 쓰고 싶어지더라도 <code>OLLAMA_HOST=0.0.0.0</code>만 설정하지는 마세요. 인증하는 리버스 프록시를 앞에 두고, Windows Defender 방화벽에서 본인 기기에서만 포트를 허용하세요. 절차: <a href="https://github.com/munimtechnologies/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a>(영어).</p>
 
 <h2>2. 속도</h2>
 <p>GTX 1050의 VRAM은 4 GB입니다. 데스크톱과 드라이버가 쓰는 몫을 빼면 모델과 그 컨텍스트에 쓸 수 있는 것은 약 3.5 GB입니다. 들어가지 않는 부분은 CPU에서 돌아가며, 보통 몇 배 느립니다.</p>
@@ -99,7 +99,7 @@ ollama --version</pre>
 <p>MV2는 비밀번호, 키, 원격 접속을 절대 요청하지 않으며, 고객님의 컴퓨터에 접속하지도 않습니다. 스크립트는 읽기 전용이며 어디에도 아무것도 보내지 않습니다. 무엇을 이메일로 보낼지는 고객님이 정합니다.</p>
 
 <footer>
-  <p>일반적인 기술 정보이며 보안 인증이나 전문적인 조언이 아닙니다. 수정 제안(번역 관련 포함)은 <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a>의 Issue로 환영합니다.</p>
+  <p>일반적인 기술 정보이며 보안 인증이나 전문적인 조언이 아닙니다. 수정 제안(번역 관련 포함)은 <a href="https://github.com/munimtechnologies/local-ai-checkup/issues">github.com/munimtechnologies/local-ai-checkup</a>의 Issue로 환영합니다.</p>
   <p>Munim, Inc.의 MV2 작성. 영어 원문을 AI로 번역.</p>
 </footer>
 </body>

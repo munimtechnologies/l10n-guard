@@ -105,13 +105,13 @@ volumes:
   <li><strong>「refused」ではなく「403 Forbidden」:</strong> これはネットワークの問題ではありません。Ollama が応答したうえで拒否しています。よくある原因は 2 つです。(1) Web ページやブラウザ拡張機能が Ollama を呼び出していて、<code>OLLAMA_ORIGINS</code> がそれをブロックしている。<a href="../ollama-origins-check.html">ブラウザチェック（英語）</a>を参照してください。Open WebUI、n8n、Dify は自分のサーバーから Ollama を呼ぶので、<code>OLLAMA_ORIGINS</code> は不要です。(2) リバースプロキシやトンネルが、127.0.0.1 で待ち受ける Ollama に自分のホスト名を渡している。このモードの Ollama は localhost 系の Host 名しか受け付けません。<code>host.docker.internal</code> が通るのはそのためです（<code>.internal</code> で終わるため）。Ollama FAQ の例と同じく、プロキシから <code>Host: localhost:11434</code> を送らせてください。Tailscale Serve も同じチェックに引っかかります。<a href="ollama-remote-access.html#api">tailscale serve が 403 を返す理由</a>を参照してください。</li>
   <li><strong>動くが遅い:</strong> <a href="../ollama-gpu.html">Ollama slow or not using the GPU（英語）</a>を参照してください。</li>
 </ul>
-<p>接続できたら、意図した以上に開けていないかを確認してください。無料のスクリプト <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a>（読み取り専用で、マシンの外には何も送信しません）を実行すると、Ollama のバインドアドレス、公開されている Docker ポート、バージョンがわかります。<a href="secure-ollama.html">Ollama が外部に公開されていないか？</a>もあわせてご覧ください。</p>
+<p>接続できたら、意図した以上に開けていないかを確認してください。無料のスクリプト <a href="https://github.com/munimtechnologies/local-ai-checkup">local-ai-checkup</a>（読み取り専用で、マシンの外には何も送信しません）を実行すると、Ollama のバインドアドレス、公開されている Docker ポート、バージョンがわかります。<a href="secure-ollama.html">Ollama が外部に公開されていないか？</a>もあわせてご覧ください。</p>
 
 <h2>代わりに確認してほしい場合</h2>
 <p>Munim, Inc. の MV2 は、マシン 1 台の<strong>ローカル AI ヘルスチェック（49 米ドル）</strong>と、最大 5 台または共有の Ollama・Open WebUI・n8n サーバー 1 台を対象にした<strong>小規模オフィス向けチェック（199 米ドル）</strong>を提供しています。何が公開されていて、何が危険または遅いのか、何から直すべきかをまとめた報告書を、お使いの OS 向けの正確なコマンドとともにお届けします。報告書は英語です。<a href="../sample-report.html">報告書のサンプル（英語）</a>をご覧ください。Stripe で <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">49 ドルを支払う</a>か <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">199 ドルを支払う</a>と、その後 <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a> へ、<code>python3 local_ai_checkup.py --json</code> の出力、お使いの OS、用途をメールで送ってください。MV2 がパスワード、キー、リモートアクセスを求めることはありません。</p>
 
 <footer>
-  <p>一般的な技術情報であり、セキュリティ認証や専門的な助言ではありません。設定を変えるのは、ご自身が所有する、または管理を許可されたマシンだけにしてください。2026 年 10 月 12 日に確認。訂正（翻訳に関するものも含む）は <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a> の Issue で歓迎します。</p>
+  <p>一般的な技術情報であり、セキュリティ認証や専門的な助言ではありません。設定を変えるのは、ご自身が所有する、または管理を許可されたマシンだけにしてください。2026 年 10 月 12 日に確認。訂正（翻訳に関するものも含む）は <a href="https://github.com/munimtechnologies/local-ai-checkup/issues">github.com/munimtechnologies/local-ai-checkup</a> の Issue で歓迎します。</p>
   <p>Munim, Inc. の MV2 による。英語から AI で翻訳。</p>
 </footer>
 </body>

@@ -33,7 +33,7 @@
 <nav><a href="../index.html">Comprobador de CVE (en inglés)</a> · <a href="secure-ollama.html">Asegurar Ollama</a> · <a href="ollama-remote-access.html">Usar Ollama en remoto</a> · <a href="ollama-api-key.html">Clave de API de Ollama</a> · <a href="docker-ollama.html">Docker no llega a Ollama</a> · <strong>Informe de ejemplo</strong> · Idiomas: <a href="../sample-report.html" hreflang="en">English</a> · <a href="../de/sample-report.html" hreflang="de">Deutsch</a> · Español · <a href="../fr/sample-report.html" hreflang="fr">Français</a> · <a href="../ja/sample-report.html" hreflang="ja">日本語</a> · <a href="../pt-br/sample-report.html" hreflang="pt-BR">Português (Brasil)</a></nav>
 <h1>Informe de ejemplo: revisión de IA local</h1>
 <p class="by">Por MV2 de Munim, Inc. Esta página se tradujo con IA del <a href="../sample-report.html" hreflang="en">original en inglés</a>; si hay diferencias, prevalece el original. Los informes de pago se redactan en inglés.</p>
-<p class="note">Este es un ejemplo real. La máquina es el propio escritorio Windows de MV2, revisado con <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> 0.2.1 el 10 de octubre de 2026. Un informe de pago sigue esta estructura, escrito para su máquina, su sistema operativo y el uso de IA local que le haya indicado a MV2.</p>
+<p class="note">Este es un ejemplo real. La máquina es el propio escritorio Windows de MV2, revisado con <a href="https://github.com/munimtechnologies/local-ai-checkup">local-ai-checkup</a> 0.2.1 el 10 de octubre de 2026. Un informe de pago sigue esta estructura, escrito para su máquina, su sistema operativo y el uso de IA local que le haya indicado a MV2.</p>
 
 <h2>Su configuración</h2>
 <table>
@@ -60,7 +60,7 @@ ollama --version</pre>
 <p>(Los comentarios significan: en Windows, descargue y ejecute el instalador actual; después, compruebe la versión.) Descargue modelos solo de <code>ollama.com/library</code> o de publicadores de confianza.</p>
 
 <h3>Bien: nada está expuesto a su red</h3>
-<p>Ollama solo responde en 127.0.0.1:11434 y no hay abiertos otros puertos de IA local. Si más adelante quiere usarlo desde otro dispositivo, no defina <code>OLLAMA_HOST=0.0.0.0</code> sin más. Ponga delante un proxy inverso con autenticación y permita el puerto solo desde sus propios dispositivos en el Firewall de Windows Defender. Pasos: <a href="https://github.com/munimv2/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a> (en inglés).</p>
+<p>Ollama solo responde en 127.0.0.1:11434 y no hay abiertos otros puertos de IA local. Si más adelante quiere usarlo desde otro dispositivo, no defina <code>OLLAMA_HOST=0.0.0.0</code> sin más. Ponga delante un proxy inverso con autenticación y permita el puerto solo desde sus propios dispositivos en el Firewall de Windows Defender. Pasos: <a href="https://github.com/munimtechnologies/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a> (en inglés).</p>
 
 <h2>2. Velocidad</h2>
 <p>Una GTX 1050 tiene 4 GB de VRAM. Después de lo que ocupan el escritorio y el controlador, quedan unos 3,5 GB para un modelo y su contexto. Lo que no cabe se ejecuta en la CPU, que suele ser varias veces más lenta.</p>
@@ -98,7 +98,7 @@ ollama --version</pre>
 <p>MV2 nunca pide contraseñas, claves ni acceso remoto, y nunca se conecta a su máquina. El script solo lee y no envía nada a ninguna parte. Usted decide qué envía por correo.</p>
 
 <footer>
-  <p>Orientación técnica general, no una certificación de seguridad ni asesoramiento profesional. Las correcciones (también de la traducción) son bienvenidas como issues en <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a>.</p>
+  <p>Orientación técnica general, no una certificación de seguridad ni asesoramiento profesional. Las correcciones (también de la traducción) son bienvenidas como issues en <a href="https://github.com/munimtechnologies/local-ai-checkup/issues">github.com/munimtechnologies/local-ai-checkup</a>.</p>
   <p>Por MV2 de Munim, Inc. Traducido del inglés con IA.</p>
 </footer>
 </body>

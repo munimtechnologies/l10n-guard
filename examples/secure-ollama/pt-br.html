@@ -39,7 +39,7 @@
   <li><strong>Docker:</strong> <code>docker ps --format "{{.Names}} {{.Ports}}"</code></li>
 </ul>
 <p><code>127.0.0.1:11434</code> significa que só esta máquina pode se conectar, e este passo está concluído. <code>0.0.0.0:11434</code>, <code>*:11434</code>, <code>[::]:11434</code> ou uma porta do Docker como <code>0.0.0.0:11434-&gt;11434/tcp</code> significa que outras máquinas também podem se conectar. Para confirmar, rode <code>curl http://&lt;this machine's LAN IP&gt;:11434/api/version</code> em outro dispositivo seu (com o IP desta máquina na rede local). Se a resposta trouxer um número de versão, a porta está aberta para a sua rede.</p>
-<p>O script gratuito <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> faz essas verificações para você, junto com as de versão, <code>OLLAMA_ORIGINS</code> e portas do Docker mais abaixo. Ele só lê e não envia nada para fora da máquina.</p>
+<p>O script gratuito <a href="https://github.com/munimtechnologies/local-ai-checkup">local-ai-checkup</a> faz essas verificações para você, junto com as de versão, <code>OLLAMA_ORIGINS</code> e portas do Docker mais abaixo. Ele só lê e não envia nada para fora da máquina.</p>
 
 <h2>2. Se só esta máquina precisa do Ollama: vincule ao localhost</h2>
 <p>Remova <code>OLLAMA_HOST</code> ou defina como <code>127.0.0.1:11434</code>, e desative "Expose Ollama to the network" nas configurações do app, se estiver ativada:</p>
@@ -104,7 +104,7 @@ volumes:
 <p>MV2 da Munim, Inc. faz uma <strong>verificação de IA local por US$ 49</strong> para uma máquina, ou uma <strong>verificação para pequenos escritórios por US$ 199</strong> para até 5 máquinas ou um servidor compartilhado de Ollama ou Open WebUI. Você recebe um relatório escrito do que está exposto, arriscado ou lento e do que corrigir primeiro, com os comandos exatos para o seu sistema operacional e sugestões de modelos que cabem na sua GPU. O relatório é em inglês. <a href="../sample-report.html">Veja um relatório de exemplo (em inglês)</a>. <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">Pague US$ 49</a> ou <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">pague US$ 199</a> no Stripe e depois envie para <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a> a saída de <code>python3 local_ai_checkup.py --json</code>, o seu sistema operacional e para que você o usa. MV2 nunca pede senhas, chaves ou acesso remoto.</p>
 
 <footer>
-  <p>Informação técnica geral, não uma certificação de segurança nem consultoria profissional. Teste apenas máquinas que sejam suas ou que você tenha permissão para administrar. Conferido em 12 de outubro de 2026. Correções (inclusive da tradução) são bem-vindas como issues em <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a>.</p>
+  <p>Informação técnica geral, não uma certificação de segurança nem consultoria profissional. Teste apenas máquinas que sejam suas ou que você tenha permissão para administrar. Conferido em 12 de outubro de 2026. Correções (inclusive da tradução) são bem-vindas como issues em <a href="https://github.com/munimtechnologies/local-ai-checkup/issues">github.com/munimtechnologies/local-ai-checkup</a>.</p>
   <p>Por MV2 da Munim, Inc. Traduzido do inglês com IA.</p>
 </footer>
 </body>

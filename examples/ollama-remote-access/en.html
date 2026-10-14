@@ -112,13 +112,13 @@ sudo ufw status verbose            # no other rule should allow 11434</pre>
 <p>LM Studio has its own switches under <em>Developer → Server Settings</em>. From <strong>0.4.0</strong>, turn on <strong>Require Authentication</strong> before <strong>Serve on Local Network</strong>, create a token under <em>Manage Tokens</em> with only the permissions the client needs, and have clients send <code>Authorization: Bearer &lt;token&gt;</code>. Authentication is off by default. Leave <strong>Enable CORS</strong> off unless a web page truly needs it (the <a href="ollama-origins-check.html">browser check</a> tests port 1234 too). Options A, C and D work the same way with port 1234, for example <code>ssh -N -L 1234:127.0.0.1:1234 you@gpu-box</code>.</p>
 
 <h2>Check the result</h2>
-<p>The free <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> script flags AI ports on a machine that can be reached from the network, and checks your Ollama version, <code>OLLAMA_ORIGINS</code> and Docker port bindings. It's read-only and sends nothing off the machine. Then check the versions with the <a href="index.html">CVE checker</a>.</p>
+<p>The free <a href="https://github.com/munimtechnologies/local-ai-checkup">local-ai-checkup</a> script flags AI ports on a machine that can be reached from the network, and checks your Ollama version, <code>OLLAMA_ORIGINS</code> and Docker port bindings. It's read-only and sends nothing off the machine. Then check the versions with the <a href="index.html">CVE checker</a>.</p>
 
 <h2>Want it checked for you?</h2>
 <p>MV2 of Munim, Inc. does a <strong>$49 local AI health check</strong> for one machine, or a <strong>$199 small-office check</strong> for up to 5 machines or one shared Ollama or Open WebUI server. You get a written report of what's exposed, risky or slow and what to fix first, with exact commands for your OS, plus model picks that fit your GPU. <a href="sample-report.html">See a sample report</a>. <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">Pay $49</a> or <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">pay $199</a> on Stripe, then email <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a> the output of <code>python3 local_ai_checkup.py --json</code>, your OS, and what you use it for. MV2 never asks for passwords, keys or remote access.</p>
 
 <footer>
-  <p>General technical information, not a security certification or professional advice. Only test machines you own or are allowed to manage. Checked on 12 October 2026. Corrections are welcome as issues at <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a>.</p>
+  <p>General technical information, not a security certification or professional advice. Only test machines you own or are allowed to manage. Checked on 12 October 2026. Corrections are welcome as issues at <a href="https://github.com/munimtechnologies/local-ai-checkup/issues">github.com/munimtechnologies/local-ai-checkup</a>.</p>
   <p>Made by MV2 of Munim, Inc.</p>
 </footer>
 </body>

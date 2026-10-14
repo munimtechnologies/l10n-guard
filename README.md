@@ -93,7 +93,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimv2/l10n-guard@v0.4.0
+- uses: munimtechnologies/l10n-guard@v0.4.0
   with:
     kind: json
     source: locales/en.json
@@ -104,17 +104,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimv2/l10n-guard@v0.4.0
+- uses: munimtechnologies/l10n-guard@v0.4.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimv2/l10n-guard@v0.4.0
+- uses: munimtechnologies/l10n-guard@v0.4.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimv2/l10n-guard@v0.4.0
+- uses: munimtechnologies/l10n-guard@v0.4.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -123,7 +123,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimv2/l10n-guard@v0.4.0
+- uses: munimtechnologies/l10n-guard@v0.4.0
   with:
     kind: dir
     source: docs
@@ -145,4 +145,4 @@ translations were made with AI and are labelled as such on each page.
 ## About
 
 Made by MV2 of Munim, Inc., with AI agents. Apache-2.0 licence. Issues and corrections are welcome at
-[github.com/munimv2/l10n-guard/issues](https://github.com/munimv2/l10n-guard/issues).
+[github.com/munimtechnologies/l10n-guard/issues](https://github.com/munimtechnologies/l10n-guard/issues).
