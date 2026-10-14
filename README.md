@@ -4,7 +4,8 @@ Catch the translation mistakes that break software and docs, before they ship.
 
 A translation can read perfectly and still break the app: a renamed `{{name}}`, a lost `%s`,
 an unclosed `<b>`, a "translated" shell command, a payment link that no longer matches, an
-apostrophe in `l'application` that fails the Android build or makes Java print a literal `{0}`.
+apostrophe in `l'application` that fails the Android build or makes Java print a literal `{0}`,
+or a French `100 % sûr` that crashes an Android app the moment the string is shown.
 These are the mistakes machine and AI translation make most often, and the ones human reviewers
 miss because they read for meaning. `l10n-guard` checks a translation against its source for
 exactly these.
@@ -15,13 +16,13 @@ exactly these.
   language, so Japanese with only `_other` or Polish with `_few`/`_many` doesn't raise false alarms.
 - **gettext `.po`**: placeholders per entry, plural form count against the `Plural-Forms` header,
   and counts of fuzzy and untranslated entries.
-- **Java `.properties`** (new in 0.4.0): ResourceBundle and Spring message bundles, with `#`/`!`
+- **Java `.properties`**: ResourceBundle and Spring message bundles, with `#`/`!`
   comments, `key=value`, `key: value` and `key value` lines, backslash continuations and
   `\uXXXX` escapes. Files that aren't UTF-8 are read as ISO-8859-1. In a MessageFormat string
   (one with `{0}` or `{name}`), a single `'` in the translation is an error: MessageFormat
   treats it as the start of quoted text, so `L'utilisateur {0}` prints `Lutilisateur {0}`.
   Write `''` instead.
-- **Flutter `.arb`** (new in 0.4.0): messages are compared with the template and `@key`
+- **Flutter `.arb`**: messages are compared with the template and `@key`
   metadata is skipped. ICU plural and select branches may differ between languages (Japanese
   needs only `other`), but every argument and tag must survive. `@@locale` left as the
   template's locale is a warning.
@@ -30,6 +31,23 @@ exactly these.
   neither written `\'` nor inside double quotes is an error, because aapt rejects it (`&apos;`
   doesn't help). Plural quantities the source lacks (`few`, `many`) are checked against its
   `other` form.
+- **Android crashes from `String.format`** (new in 0.5.0, code `java-format`): when the app
+  passes arguments (`getString(id, args)`, `getQuantityString`, Compose `stringResource`),
+  Android formats the string with Java's `java.util.Formatter`, which reads the *whole*
+  translation first and throws on anything it can't parse. So a translation crashes the app in
+  that language even though the English works. l10n-guard parses each translation of a
+  formatted string the way `Formatter` does and names the exception it would throw:
+  - `UnknownFormatConversionException`: a stray `%`, as in `Téléchargé à 50%`, `50%ige`,
+    `%ф` or `%d %restants`;
+  - `FormatFlagsConversionMismatchException`: prose that happens to read as a flag, as in
+    `100 % sûr` (`% s`) or `%1$d % terminé` (`% te`);
+  - `MissingFormatArgumentException`: `%3$s` when the source passes two arguments;
+  - `IllegalFormatConversionException`: `%d` for the source's `%.1f`, or the reverse;
+  - `MissingFormatWidthException`, `IllegalFormatPrecisionException` and the other flag errors.
+
+  A `%d` for the source's `%s` is a warning (`java-format-type`): it crashes only if the app
+  passes text. Strings marked `formatted="false"`, string arrays, and sources whose only `%` is
+  prose (`50% off`) are not checked, because the app doesn't format them.
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -51,8 +69,9 @@ exactly these.
 Placeholder styles recognised: `{{name}}`, `{name}`, `{0}`, ICU `{count, plural, ...}` (by argument
 name, so translated plural branches are fine), `%s`, `%d`, `%.2f`, `%@`, `%lld`, `%(name)s`,
 `%1$s`, `${name}`. Markup: HTML/XML tags and react-i18next `<0>...</0>` slots. Prose like
-`50 % de remise` is not mistaken for `% d`. In plural forms for zero, one and two, a missing
-placeholder is only a warning, since "one file" often spells the number out.
+`50 % de remise` is not mistaken for `% d`, except in an Android string the app formats, where
+Java does read it that way. In plural forms for zero, one and two, a missing placeholder is only
+a warning, since "one file" often spells the number out.
 
 ## Use
 
@@ -77,8 +96,9 @@ Example output:
 ERROR placeholder-missing [cart.total]: placeholder(s) missing: {{amount}}
 ERROR tags [welcome]: markup differs: missing </b>
 ERROR messageformat-apostrophe [deleted]: a single ' starts quoted text in MessageFormat, so the arguments after it print literally; write ''
+ERROR java-format [done]: String.format would throw FormatFlagsConversionMismatchException (% te)
 WARNING missing-key [settings.title]: key missing from translation
-3 error(s), 1 warning(s)
+4 error(s), 1 warning(s)
 ```
 
 In `dir` mode each issue starts with the file's path, for example
@@ -93,7 +113,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.4.0
+- uses: munimtechnologies/l10n-guard@v0.5.0
   with:
     kind: json
     source: locales/en.json
@@ -104,17 +124,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.4.0
+- uses: munimtechnologies/l10n-guard@v0.5.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.4.0
+- uses: munimtechnologies/l10n-guard@v0.5.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.4.0
+- uses: munimtechnologies/l10n-guard@v0.5.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -123,7 +143,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.4.0
+- uses: munimtechnologies/l10n-guard@v0.5.0
   with:
     kind: dir
     source: docs
@@ -142,7 +162,12 @@ with six translations (German, Spanish, French, Japanese, Korean, Brazilian Port
 command, code block and external link, including both payment links, survived translation. Those
 translations were made with AI and are labelled as such on each page.
 
+The `java-format` check follows the specifier grammar and checks of OpenJDK's
+`java.util.Formatter`. It is being compared against a real JVM on the translations of open-source
+Android apps; results will be published here.
+
 ## About
 
-Made by MV2 of Munim, Inc., with AI agents. Apache-2.0 licence. Issues and corrections are welcome at
+Made by MV2 of Munim, Inc., with AI agents. Licensed under the Apache License, Version 2.0
+(Apache-2.0); see [LICENSE](LICENSE). Issues and corrections are welcome at
 [github.com/munimtechnologies/l10n-guard/issues](https://github.com/munimtechnologies/l10n-guard/issues).

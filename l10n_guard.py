@@ -3,8 +3,9 @@
 
 Checks a translation against its source and reports what changed that should
 not have: placeholders, HTML tags, code blocks, inline code, links, numbers,
-plural forms, hreflang alternates. Standard library only; reads files, never
-sends anything.
+plural forms, hreflang alternates, and Android strings that would crash
+Java's String.format. Standard library only; reads files, never sends
+anything.
 
   python3 l10n_guard.py html       source.html  translated.html
   python3 l10n_guard.py json       en.json      de.json
@@ -19,7 +20,8 @@ sends anything.
   python3 l10n_guard.py arb        app_en.arb   app_de.arb
 
 Exit code 0 = no errors, 1 = errors found, 2 = bad input.
-Made by MV2 of Munim, Inc. with AI agents. Apache-2.0 licence.
+Made by MV2 of Munim, Inc. with AI agents. Licensed under the Apache License,
+Version 2.0 (Apache-2.0); see LICENSE.
 """
 
 import argparse
@@ -31,7 +33,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -138,6 +140,171 @@ def _check_form(source, target, key, quantity):
             if p["code"] == "placeholder-missing":
                 p["level"] = WARNING
     return found
+
+
+# ------------------------------------------------------------- Java Formatter
+
+# java.util.Formatter's specifier syntax. Android passes every string the app
+# gives arguments to (getString(id, args), getQuantityString, Compose
+# stringResource) through String.format, which parses the whole string first
+# and throws on any % it can't read.
+_JAVA_SPEC_RE = re.compile(r"%(\d+\$)?([-#+ 0,(<]*)?(\d+)?(\.\d+)?([tT])?([a-zA-Z%])")
+_JAVA_KINDS = {"b": "any", "h": "any", "s": "any", "c": "char",
+               "d": "int", "o": "int", "x": "int",
+               "e": "float", "f": "float", "g": "float", "a": "float"}
+_JAVA_UPPER = set("BHSCXEGA")
+_JAVA_DATE = set("HIklMSLNpzZsQBbhAaCYyjmdeRTrDFc")
+# Flags each conversion refuses (FormatFlagsConversionMismatchException).
+# '#' on %s needs a Formattable argument, which app strings never get.
+_JAVA_BAD_FLAGS = {"b": "#+ 0,(", "h": "#+ 0,(", "s": "#+ 0,(", "c": "#+ 0,(",
+                   "d": "#", "o": ",", "x": ",", "e": ",", "f": "", "g": "#", "a": "(,"}
+_JAVA_KIND_NAMES = {"any": "general (%s)", "char": "a character (%c)",
+                    "int": "an integer (%d)", "float": "a decimal (%f)", "date": "a date (%t)"}
+
+
+class JavaFormatError(ValueError):
+    """What java.util.Formatter would throw; .exception is its class name."""
+
+    def __init__(self, exception, detail):
+        super().__init__("%s (%s)" % (exception, detail))
+        self.exception = exception
+
+
+def java_format(text):
+    """Parses text as String.format does. Returns [(argument number, kind)]
+    for each specifier that takes an argument (kind: any, char, int, float or
+    date); raises JavaFormatError where Java would throw."""
+    specs = []
+    ordinary = last = 0
+    pos = 0
+    while True:
+        m = _JAVA_SPEC_RE.search(text, pos)
+        end = m.start() if m else len(text)
+        bad = text.find("%", pos, end)
+        if bad >= 0:
+            after = text[bad + 1] if bad + 1 < end else "%"
+            raise JavaFormatError("UnknownFormatConversionException", "Conversion = '%s'" % after)
+        if not m:
+            return specs
+        pos = m.end()
+        index, flags, width, precision, dt, conv = m.groups()
+        flags = flags or ""
+        spec = m.group(0)
+        if len(set(flags)) != len(flags):
+            raise JavaFormatError("DuplicateFormatFlagsException", spec)
+        if dt:
+            kind, rule = "date", "c"
+            if conv not in _JAVA_DATE:
+                raise JavaFormatError("UnknownFormatConversionException", "Conversion = 't%s'" % conv)
+        elif conv in "%n":
+            kind, rule = None, conv
+        elif conv.lower() in _JAVA_KINDS and (conv.islower() or conv in _JAVA_UPPER):
+            kind, rule = _JAVA_KINDS[conv.lower()], conv.lower()
+        else:
+            raise JavaFormatError("UnknownFormatConversionException", "Conversion = '%s'" % conv)
+        if kind is None:
+            if precision:
+                raise JavaFormatError("IllegalFormatPrecisionException", spec)
+            if flags not in ("", "-") or (conv == "n" and (flags or width)):
+                raise JavaFormatError("IllegalFormatFlagsException", spec)
+            if "-" in flags and not width:
+                raise JavaFormatError("MissingFormatWidthException", spec)
+            continue
+        if kind in ("int", "float"):
+            if not width and ("-" in flags or "0" in flags):
+                raise JavaFormatError("MissingFormatWidthException", spec)
+            if ("+" in flags and " " in flags) or ("-" in flags and "0" in flags):
+                raise JavaFormatError("IllegalFormatFlagsException", spec)
+        if precision and kind in ("char", "int", "date"):
+            raise JavaFormatError("IllegalFormatPrecisionException", spec)
+        for flag in flags:
+            if flag in _JAVA_BAD_FLAGS[rule]:
+                raise JavaFormatError("FormatFlagsConversionMismatchException", spec)
+        if "-" in flags and not width:
+            raise JavaFormatError("MissingFormatWidthException", spec)
+        if "<" in flags:
+            if not last:
+                raise JavaFormatError("MissingFormatArgumentException", spec)
+            number = last
+        elif index:
+            number = int(index[:-1])
+            if number == 0:
+                raise JavaFormatError("IllegalFormatArgumentIndexException", spec)
+            last = number
+        else:
+            ordinary += 1
+            number = last = ordinary
+        specs.append((number, kind))
+
+
+def java_formatted(text):
+    """The (argument, kind) list if text is a string an app would pass to
+    String.format: Java can parse it and at least one specifier is meant as
+    one, not prose like "50% off" (a space flag or a digit before the %).
+    Otherwise None."""
+    try:
+        specs = java_format(text)
+    except JavaFormatError:
+        return None
+    for m in _JAVA_SPEC_RE.finditer(text):
+        if m.group(6) in "%n" and not m.group(5):
+            continue
+        if " " in (m.group(2) or "") or (m.start() and text[m.start() - 1].isdigit()):
+            continue
+        return specs
+    return None
+
+
+def _java_clash(src_kind, tgt_kind):
+    """None if Java accepts the source's argument for the translation's
+    specifier, "crash" if it never does, "maybe" if it depends on the value
+    the app passes (a %s argument may be text or a number)."""
+    if tgt_kind == "any" or src_kind == tgt_kind:
+        return None
+    if src_kind == "any" or (src_kind, tgt_kind) in (("int", "char"), ("int", "date"),
+                                                     ("date", "int")):
+        return "maybe"
+    return "crash"
+
+
+def check_java_format(source, target, key=None):
+    """Checks a translation of a string the app formats with String.format.
+    Java reads the whole translation before printing, so one stray % (as in
+    "50 % de", "100 % sûr" or "50%ige"), an argument the source doesn't pass,
+    or a %d for the source's %f crashes the app in that language."""
+    src = java_formatted(source)
+    if not src:
+        return []
+    passed = max(n for n, _ in src)
+    kinds = {}
+    for n, kind in src:
+        if kinds.get(n, "any") == "any":
+            kinds[n] = kind
+    try:
+        tgt = java_format(target)
+    except JavaFormatError as exc:
+        return [issue(ERROR, "java-format", "String.format would throw %s" % exc, key)]
+    problems = []
+    for n, kind in tgt:
+        if n > passed:
+            problems.append(issue(ERROR, "java-format", "uses argument %d but the source passes %d, "
+                                  "so String.format would throw MissingFormatArgumentException"
+                                  % (n, passed), key))
+            continue
+        if n not in kinds:
+            continue
+        clash = _java_clash(kinds[n], kind)
+        if clash == "crash":
+            problems.append(issue(ERROR, "java-format", "argument %d is %s in the source but %s "
+                                  "here, so String.format would throw "
+                                  "IllegalFormatConversionException"
+                                  % (n, _JAVA_KIND_NAMES[kinds[n]], _JAVA_KIND_NAMES[kind]), key))
+        elif clash == "maybe":
+            problems.append(issue(WARNING, "java-format-type", "argument %d is %s in the source but "
+                                  "%s here; String.format throws IllegalFormatConversionException "
+                                  "unless the app passes a matching value"
+                                  % (n, _JAVA_KIND_NAMES[kinds[n]], _JAVA_KIND_NAMES[kind]), key))
+    return problems
 
 
 # --------------------------------------------------------------- JSON catalogs
@@ -336,6 +503,7 @@ def _inner_xml(el):
 
 
 _QUANTITY_KEY_RE = re.compile(r"^(.*)\[(zero|one|two|few|many|other)\]$")
+_ARRAY_KEY_RE = re.compile(r"\[\d+\]$")
 
 
 def parse_android(text):
@@ -363,6 +531,45 @@ def parse_android(text):
     return out
 
 
+def android_unformatted(text):
+    """Names of the <string>s and <plurals> marked formatted="false"."""
+    return {el.get("name") for el in ET.fromstring(text)
+            if el.get("name") and el.get("formatted") == "false"}
+
+
+def _android_text(raw):
+    """The string an app gets at runtime from parse_android's text: markup
+    dropped, double quotes removed, backslash escapes resolved and, outside
+    quotes, runs of whitespace collapsed to one space (as aapt2 does)."""
+    text = _TAG_RE.sub("", raw)
+    out, quoted, pending = [], False, False
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if c.isspace() and not quoted:
+            pending = True
+            i += 1
+            continue
+        if pending and out:
+            out.append(" ")
+        pending = False
+        if c == "\\" and i + 1 < len(text):
+            nxt = text[i + 1]
+            if nxt == "u" and re.match(r"[0-9A-Fa-f]{4}$", text[i + 2:i + 6]):
+                out.append(chr(int(text[i + 2:i + 6], 16)))
+                i += 6
+                continue
+            out.append({"n": "\n", "t": "\t"}.get(nxt, nxt))
+            i += 2
+        elif c == '"':
+            quoted = not quoted
+            i += 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
 _QUOTED_RE = re.compile(r'(?<!\\)"(?:[^"\\]|\\.)*"', re.S)
 _BARE_APOSTROPHE_RE = re.compile(r"(?<!\\)'")
 
@@ -376,6 +583,7 @@ def _android_apostrophe(text):
 def check_android(source_text, target_text):
     """Compares a translated strings.xml (values-fr/) with the source (values/)."""
     src, tgt = parse_android(source_text), parse_android(target_text)
+    unformatted = android_unformatted(source_text)
     problems = []
     tgt_plural_bases = set()
     for key in tgt:
@@ -403,6 +611,9 @@ def check_android(source_text, target_text):
             problems.append(issue(ERROR, "android-apostrophe",
                                   "apostrophe must be written \\' (or the text put in double "
                                   "quotes), or the build fails", key))
+        # getStringArray never formats; a formatted="false" string isn't formatted.
+        if not _ARRAY_KEY_RE.search(key) and (m.group(1) if m else key) not in unformatted:
+            problems.extend(check_java_format(_android_text(source), _android_text(tgt[key]), key))
     return problems
 
 

@@ -177,6 +177,22 @@ ANDROID_FR = '''<?xml version="1.0" encoding="utf-8"?>
 </resources>
 '''
 
+ANDROID_JAVA_EN = '''<resources>
+    <string name="done">%1$d%% done</string>
+    <string name="raw" formatted="false">%s and %d</string>
+    <string name="who">Shared by %1$s</string>
+    <plurals name="left"><item quantity="one">One left</item><item quantity="other">%d left</item></plurals>
+</resources>
+'''
+
+ANDROID_JAVA_FR = '''<resources>
+    <string name="done">%1$d % terminé</string>
+    <string name="raw">%s et %</string>
+    <string name="who">Partagé par %2$s</string>
+    <plurals name="left"><item quantity="one">Il en reste un</item><item quantity="many">%d restants</item><item quantity="other">%d %restants</item></plurals>
+</resources>
+'''
+
 
 class Android(unittest.TestCase):
     def test_parse(self):
@@ -206,6 +222,67 @@ class Android(unittest.TestCase):
         ja = ja.replace('translatable="false">Pocket', 'translatable="false">ポケット')
         problems = g.check_android(ANDROID_EN, ja)
         self.assertNotIn("missing-key", codes(problems))
+
+    def test_java_format_crashes(self):
+        self.assertEqual(g.android_unformatted(ANDROID_JAVA_EN), {"raw"})
+        problems = g.check_android(ANDROID_JAVA_EN, ANDROID_JAVA_FR)
+        self.assertEqual(sorted((p["code"], p["key"]) for p in problems),
+                         [("java-format", "done"), ("java-format", "left[other]"),
+                          ("java-format", "who"), ("placeholder-extra", "who"),
+                          ("placeholder-missing", "raw"), ("placeholder-missing", "who")])
+
+
+class JavaFormat(unittest.TestCase):
+    def test_parse(self):
+        self.assertEqual(g.java_format("%1$s has %2$d files, %3$.1f%% full"),
+                         [(1, "any"), (2, "int"), (3, "float")])
+        self.assertEqual(g.java_format("%s and %s, again %<s"),
+                         [(1, "any"), (2, "any"), (2, "any")])
+        self.assertEqual(g.java_format("%,d km at %tH:%tM%n"),
+                         [(1, "int"), (2, "date"), (3, "date")])
+        self.assertEqual(g.java_format("100%% done"), [])
+
+    def test_what_java_refuses(self):
+        cases = {
+            "Téléchargé à 50%": "UnknownFormatConversionException",
+            "50%ige Ermäßigung für %1$s": "UnknownFormatConversionException",
+            "%1$s ф%ф": "UnknownFormatConversionException",
+            "%tq": "UnknownFormatConversionException",
+            "100 % sûr, %1$s": "FormatFlagsConversionMismatchException",
+            "%1$d % terminé": "FormatFlagsConversionMismatchException",
+            "%-d": "MissingFormatWidthException",
+            "%.2d": "IllegalFormatPrecisionException",
+            "%<s": "MissingFormatArgumentException",
+        }
+        for text, exception in cases.items():
+            with self.assertRaises(g.JavaFormatError, msg=text) as ctx:
+                g.java_format(text)
+            self.assertEqual(ctx.exception.exception, exception, text)
+
+    def test_formatted_or_prose(self):
+        self.assertIsNone(g.java_formatted("50% off"))
+        self.assertIsNone(g.java_formatted("Saved"))
+        self.assertIsNone(g.java_formatted("Use %USERPROFILE%"))
+        self.assertEqual(g.java_formatted("%d%% done"), [(1, "int")])
+
+    def test_check_java_format(self):
+        self.assertEqual(g.check_java_format("%d files", "%s fichiers"), [])
+        self.assertEqual(g.check_java_format("50% off", "50 % de remise"), [])
+        missing = g.check_java_format("%1$s of %2$s", "%1$s de %3$s")
+        self.assertEqual([(p["code"], p["level"]) for p in missing], [("java-format", g.ERROR)])
+        self.assertIn("MissingFormatArgumentException", missing[0]["message"])
+        decimal = g.check_java_format("%.1f MB", "%d Mo")
+        self.assertIn("IllegalFormatConversionException", decimal[0]["message"])
+        text = g.check_java_format("Hello %s", "Hallo %d")
+        self.assertEqual([(p["code"], p["level"]) for p in text], [("java-format-type", g.WARNING)])
+        prose = g.check_java_format("%1$d%% done", "%1$d % terminé")
+        self.assertIn("FormatFlagsConversionMismatchException", prose[0]["message"])
+
+    def test_android_text(self):
+        self.assertEqual(g._android_text("Hello <b>%1$s</b>\\n  next"), "Hello %1$s\n next")
+        self.assertEqual(g._android_text('"  two  spaces "'), "  two  spaces ")
+        self.assertEqual(g._android_text("l\\'appli \\u00e0 50%\n    de %1$s"),
+                         "l'appli à 50% de %1$s")
 
 
 XLIFF12 = '''<?xml version="1.0" encoding="UTF-8"?>
@@ -607,6 +684,16 @@ class Cli(unittest.TestCase):
             err = io.StringIO()
             with contextlib.redirect_stderr(err):
                 self.assertEqual(g.run(["android", en, broken]), 2)
+
+    def test_android_java_format_cli(self):
+        with tempfile.TemporaryDirectory() as d:
+            en = _write(d, "values/strings.xml", ANDROID_JAVA_EN)
+            fr = _write(d, "values-fr/strings.xml", ANDROID_JAVA_FR)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(g.run(["android", en, fr]), 1)
+            self.assertIn("java-format [done]: String.format would throw "
+                          "FormatFlagsConversionMismatchException", out.getvalue())
 
     def test_properties_and_arb_kinds(self):
         with tempfile.TemporaryDirectory() as d:
