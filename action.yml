@@ -6,10 +6,10 @@ branding:
   color: blue
 inputs:
   kind:
-    description: "html, md, json, po, or dir (a whole locale folder against its source folder)"
+    description: "html, md, json, android, strings, dir (a whole locale folder against its source folder), or a single-file format: po, xliff, xcstrings"
     required: true
   source:
-    description: "Source-language file or folder (not used for po)"
+    description: "Source-language file or folder (not used for po, xliff, xcstrings)"
     required: false
     default: ""
   target:
@@ -32,8 +32,9 @@ runs:
       run: |
         args=()
         if [ "$L10N_STRICT" = "true" ]; then args+=(--strict); fi
-        if [ "$L10N_KIND" = "po" ]; then
-          python3 "$L10N_SCRIPT" "${args[@]}" po "$L10N_TARGET"
-        else
-          python3 "$L10N_SCRIPT" "${args[@]}" "$L10N_KIND" "$L10N_SOURCE" "$L10N_TARGET"
-        fi
+        case "$L10N_KIND" in
+          po|xliff|xcstrings)
+            python3 "$L10N_SCRIPT" "${args[@]}" "$L10N_KIND" "$L10N_TARGET" ;;
+          *)
+            python3 "$L10N_SCRIPT" "${args[@]}" "$L10N_KIND" "$L10N_SOURCE" "$L10N_TARGET" ;;
+        esac

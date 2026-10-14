@@ -145,6 +145,208 @@ class Gettext(unittest.TestCase):
         self.assertEqual(stats["translated"], 1)
 
 
+ANDROID_EN = '''<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="app_name" translatable="false">Pocket</string>
+    <string name="welcome">Hello <xliff:g id="user">%1$s</xliff:g>, you have <b>%2$d</b> new messages</string>
+    <string name="saved">Saved</string>
+    <plurals name="songs">
+        <item quantity="one">%d song</item>
+        <item quantity="other">%d songs</item>
+    </plurals>
+    <string-array name="sizes">
+        <item>Small</item>
+        <item>Large</item>
+    </string-array>
+</resources>
+'''
+
+ANDROID_FR = '''<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="welcome">Bonjour <xliff:g id="user">%1$s</xliff:g>, vous avez <b>%2$d</b> nouveaux messages</string>
+    <string name="saved">Enregistré dans l'application</string>
+    <plurals name="songs">
+        <item quantity="one">Une chanson</item>
+        <item quantity="many">%d de chansons</item>
+        <item quantity="other">%d chansons</item>
+    </plurals>
+    <string-array name="sizes">
+        <item>Petit</item>
+    </string-array>
+    <string name="legacy">Ancien</string>
+</resources>
+'''
+
+
+class Android(unittest.TestCase):
+    def test_parse(self):
+        strings = g.parse_android(ANDROID_EN)
+        self.assertNotIn("app_name", strings)
+        self.assertEqual(strings["welcome"],
+                         "Hello <g>%1$s</g>, you have <b>%2$d</b> new messages")
+        self.assertEqual(strings["songs[other]"], "%d songs")
+        self.assertEqual(strings["sizes[1]"], "Large")
+
+    def test_check(self):
+        problems = g.check_android(ANDROID_EN, ANDROID_FR)
+        self.assertEqual(sorted((p["code"], p["level"], p["key"]) for p in problems),
+                         [("android-apostrophe", g.ERROR, "saved"),
+                          ("extra-key", g.WARNING, "legacy"),
+                          ("missing-key", g.WARNING, "sizes[1]"),
+                          ("placeholder-missing", g.WARNING, "songs[one]")])
+
+    def test_apostrophes(self):
+        self.assertTrue(g._android_apostrophe("dans l'application"))
+        self.assertFalse(g._android_apostrophe("dans l\\'application"))
+        self.assertFalse(g._android_apostrophe('"dans l\'application"'))
+        self.assertFalse(g._android_apostrophe("dans l’application"))
+
+    def test_japanese_other_only(self):
+        ja = ANDROID_EN.replace('<item quantity="one">%d song</item>', "")
+        ja = ja.replace('translatable="false">Pocket', 'translatable="false">ポケット')
+        problems = g.check_android(ANDROID_EN, ja)
+        self.assertNotIn("missing-key", codes(problems))
+
+
+XLIFF12 = '''<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en" target-language="de" datatype="plaintext" original="app">
+    <body>
+      <trans-unit id="greet">
+        <source>Hello <x id="INTERPOLATION" equiv-text="{{ name }}"/>!</source>
+        <target state="translated">Hallo <x id="INTERPOLATION" equiv-text="{{ name }}"/>!</target>
+      </trans-unit>
+      <trans-unit id="link">
+        <source>Read <g id="1">the docs</g></source>
+        <target>Lies die Doku</target>
+      </trans-unit>
+      <trans-unit id="count">
+        <source>{count} files</source>
+        <target>Dateien</target>
+      </trans-unit>
+      <trans-unit id="todo">
+        <source>Delete %s?</source>
+        <target state="needs-translation"/>
+      </trans-unit>
+      <trans-unit id="brand" translate="no">
+        <source>ACME</source>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>
+'''
+
+XLIFF20 = '''<xliff xmlns="urn:oasis:names:tc:xliff:document:2.0" version="2.0" srcLang="en" trgLang="ja">
+  <file id="f1">
+    <unit id="welcome">
+      <segment state="translated">
+        <source>Welcome, <pc id="1">%1$s</pc></source>
+        <target>ようこそ、<pc id="1">%1$s</pc></target>
+      </segment>
+    </unit>
+    <unit id="two">
+      <segment><source>First.</source><target>最初。</target></segment>
+      <segment><source>Second <ph id="2"/>.</source><target>二番目。</target></segment>
+    </unit>
+  </file>
+</xliff>
+'''
+
+
+class Xliff(unittest.TestCase):
+    def test_xliff_12(self):
+        problems, stats = g.check_xliff(XLIFF12)
+        self.assertEqual(sorted((p["code"], p["level"], p["key"]) for p in problems),
+                         [("inline-codes", g.ERROR, "unit link"),
+                          ("placeholder-missing", g.ERROR, "unit count")])
+        self.assertEqual(stats, {"units": 4, "translated": 3, "untranslated": 1})
+
+    def test_xliff_20_segments(self):
+        problems, stats = g.check_xliff(XLIFF20)
+        self.assertEqual([(p["code"], p["key"]) for p in problems],
+                         [("inline-codes", "unit two#2")])
+        self.assertIn("<ph id=2>", problems[0]["message"])
+        self.assertEqual(stats, {"units": 3, "translated": 3, "untranslated": 0})
+
+
+STRINGS_EN = '''/* Greeting */
+"greeting" = "Hello %@, you have %lld messages";
+"url" = "See https://example.org/help"; // trailing comment
+"quote" = "Say \\"hi\\"";
+'''
+
+STRINGS_DE = '''"greeting" = "Hallo %@, du hast Nachrichten";
+"url" = "Siehe https://example.org/help";
+"quote" = "Sag \\"hallo\\"";
+"extra" = "Extra";
+'''
+
+
+class AppleStrings(unittest.TestCase):
+    def test_parse(self):
+        self.assertEqual(g.parse_strings(STRINGS_EN),
+                         {"greeting": "Hello %@, you have %lld messages",
+                          "url": "See https://example.org/help",
+                          "quote": 'Say \\"hi\\"'})
+        with self.assertRaises(ValueError):
+            g.parse_strings('"a" = "b"')
+
+    def test_check(self):
+        problems = g.check_catalog(g.parse_strings(STRINGS_EN), g.parse_strings(STRINGS_DE))
+        self.assertEqual([(p["code"], p["level"], p["key"]) for p in problems],
+                         [("placeholder-missing", g.ERROR, "greeting"),
+                          ("extra-key", g.WARNING, "extra")])
+
+    def test_cli_reads_utf16(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = _write(d, "en.lproj/Localizable.strings", STRINGS_EN)
+            path = os.path.join(d, "de.strings")
+            with open(path, "wb") as f:
+                f.write(STRINGS_DE.encode("utf-16"))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(g.run(["strings", src, path]), 1)
+            self.assertIn("placeholder-missing [greeting]", out.getvalue())
+
+
+XCSTRINGS = {
+    "sourceLanguage": "en",
+    "version": "1.0",
+    "strings": {
+        "Hello %@": {
+            "localizations": {
+                "de": {"stringUnit": {"state": "translated", "value": "Hallo %@"}},
+                "fr": {"stringUnit": {"state": "translated", "value": "Bonjour"}},
+            }
+        },
+        "%lld items": {
+            "localizations": {
+                "en": {"variations": {"plural": {
+                    "one": {"stringUnit": {"state": "translated", "value": "One item"}},
+                    "other": {"stringUnit": {"state": "translated", "value": "%lld items"}}}}},
+                "de": {"variations": {"plural": {
+                    "one": {"stringUnit": {"state": "translated", "value": "Ein Artikel"}},
+                    "other": {"stringUnit": {"state": "translated", "value": "Artikel"}}}}},
+            }
+        },
+        "Brand": {"shouldTranslate": False},
+    },
+}
+
+
+class StringCatalog(unittest.TestCase):
+    def test_check(self):
+        problems, stats = g.check_xcstrings(XCSTRINGS)
+        self.assertEqual(sorted((p["key"], p["code"], p["level"]) for p in problems),
+                         [("%lld items [de plural.other]", "placeholder-missing", g.ERROR),
+                          ("Hello %@ [fr]", "placeholder-missing", g.ERROR)])
+        self.assertEqual(stats, {"strings": 2, "checked": 4, "untranslated": 1})
+
+    def test_not_a_catalog(self):
+        with self.assertRaises(ValueError):
+            g.check_xcstrings({"version": "1.0"})
+
+
 SRC_HTML = ('<html lang="en"><body><p>Run <code>ollama serve</code> on port 11434.</p>'
             '<pre>docker run -p 127.0.0.1:11434:11434 ollama/ollama</pre>'
             '<a href="https://buy.stripe.com/x">Pay</a> <a href="other.html">More</a></body></html>')
@@ -238,6 +440,15 @@ class Folders(unittest.TestCase):
             with contextlib.redirect_stderr(err):
                 self.assertEqual(g.run(["dir", source, os.path.join(d, "missing")]), 2)
 
+    def test_apple_lproj_dir(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write(d, "en.lproj/Localizable.strings", STRINGS_EN)
+            _write(d, "de.lproj/Localizable.strings", STRINGS_DE)
+            problems, stats = g.check_dir(os.path.join(d, "en.lproj"), os.path.join(d, "de.lproj"))
+        self.assertEqual(stats, {"checked": 1, "unmatched": 0})
+        self.assertEqual(sorted(p["key"] for p in problems),
+                         ["Localizable.strings extra", "Localizable.strings greeting"])
+
 
 EXAMPLES = os.path.join(HERE, "examples")
 
@@ -294,6 +505,26 @@ class Cli(unittest.TestCase):
             err = io.StringIO()
             with contextlib.redirect_stderr(err):
                 self.assertEqual(g.run(["json", src, src]), 2)
+
+    def test_mobile_and_xliff_kinds(self):
+        with tempfile.TemporaryDirectory() as d:
+            en = _write(d, "values/strings.xml", ANDROID_EN)
+            fr = _write(d, "values-fr/strings.xml", ANDROID_FR)
+            xlf = _write(d, "messages.de.xlf", XLIFF12)
+            cat = _write(d, "Localizable.xcstrings", json.dumps(XCSTRINGS))
+            broken = _write(d, "values-de/strings.xml", "<resources><string name=")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(g.run(["android", en, fr]), 1)
+                self.assertEqual(g.run(["xliff", xlf]), 1)
+                self.assertEqual(g.run(["xcstrings", cat]), 1)
+            text = out.getvalue()
+            self.assertIn("android-apostrophe [saved]", text)
+            self.assertIn("4 units, 3 translated, 1 untranslated", text)
+            self.assertIn("2 strings, 4 checked, 1 untranslated", text)
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(g.run(["android", en, broken]), 2)
 
 
 if __name__ == "__main__":

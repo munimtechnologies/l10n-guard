@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Informe de ejemplo: revisión de IA local (Ollama en una GPU de 4 GB) | MV2 de Munim, Inc.</title>
+<meta name="description" content="Un ejemplo real de la revisión de IA local de MV2 (49 USD para una máquina, 199 USD para una oficina pequeña): qué ralentiza una máquina con Ollama, qué es arriesgado y qué arreglar primero, con los comandos exactos. Por MV2 de Munim, Inc.">
+<link rel="canonical" href="https://munimv2.github.io/es/sample-report.html">
+<link rel="alternate" hreflang="en" href="https://munimv2.github.io/sample-report.html">
+<link rel="alternate" hreflang="de" href="https://munimv2.github.io/de/sample-report.html">
+<link rel="alternate" hreflang="es" href="https://munimv2.github.io/es/sample-report.html">
+<link rel="alternate" hreflang="fr" href="https://munimv2.github.io/fr/sample-report.html">
+<link rel="alternate" hreflang="ja" href="https://munimv2.github.io/ja/sample-report.html">
+<link rel="alternate" hreflang="pt-BR" href="https://munimv2.github.io/pt-br/sample-report.html">
+<link rel="alternate" hreflang="x-default" href="https://munimv2.github.io/sample-report.html">
+<style>
+  body { font: 16px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1.2rem; color: #1b1b1b; background: #fff; }
+  h1 { font-size: 1.6rem; line-height: 1.25; }
+  h2 { font-size: 1.25rem; margin-top: 2rem; }
+  h3 { font-size: 1.05rem; margin-top: 1.4rem; }
+  code, pre { font: 0.9rem/1.45 ui-monospace, Consolas, monospace; background: #f3f3f3; }
+  code { padding: 0 0.2rem; }
+  pre { padding: 0.7rem; overflow-x: auto; }
+  nav, .by { color: #555; }
+  .note { border-left: 4px solid #555; padding: 0.4rem 0.7rem; background: #f7f7f7; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  th, td { border: 1px solid #ddd; padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+  th { background: #f3f3f3; }
+  footer { margin-top: 2.5rem; color: #555; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<nav><a href="../index.html">Comprobador de CVE (en inglés)</a> · <a href="secure-ollama.html">Asegurar Ollama</a> · <a href="ollama-remote-access.html">Usar Ollama en remoto</a> · <a href="ollama-api-key.html">Clave de API de Ollama</a> · <a href="docker-ollama.html">Docker no llega a Ollama</a> · <strong>Informe de ejemplo</strong> · Idiomas: <a href="../sample-report.html" hreflang="en">English</a> · <a href="../de/sample-report.html" hreflang="de">Deutsch</a> · Español · <a href="../fr/sample-report.html" hreflang="fr">Français</a> · <a href="../ja/sample-report.html" hreflang="ja">日本語</a> · <a href="../pt-br/sample-report.html" hreflang="pt-BR">Português (Brasil)</a></nav>
+<h1>Informe de ejemplo: revisión de IA local</h1>
+<p class="by">Por MV2 de Munim, Inc. Esta página se tradujo con IA del <a href="../sample-report.html" hreflang="en">original en inglés</a>; si hay diferencias, prevalece el original. Los informes de pago se redactan en inglés.</p>
+<p class="note">Este es un ejemplo real. La máquina es el propio escritorio Windows de MV2, revisado con <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> 0.2.1 el 10 de octubre de 2026. Un informe de pago sigue esta estructura, escrito para su máquina, su sistema operativo y el uso de IA local que le haya indicado a MV2.</p>
+
+<h2>Su configuración</h2>
+<table>
+  <tr><th>Sistema</th><td>Windows 10, 15,9 GB de RAM</td></tr>
+  <tr><th>GPU</th><td>NVIDIA GeForce GTX 1050, 4 GB de VRAM</td></tr>
+  <tr><th>Ollama</th><td>0.32.4, 8 modelos instalados, escucha solo en 127.0.0.1</td></tr>
+  <tr><th>Uso indicado</th><td>Ayuda con código y resúmenes de documentos (ejemplo)</td></tr>
+</table>
+
+<h2>Resumen: arregle esto primero</h2>
+<ol>
+  <li><strong>Actualice Ollama</strong> (riesgo). 0.32.4 está dentro del rango declarado de CVE-2026-85180.</li>
+  <li><strong>Use modelos que quepan en 4 GB</strong> (velocidad). Todo lo que sea más grande se ejecuta en parte en la CPU.</li>
+  <li><strong>Mantenga la API en localhost</strong> (ya está bien). No cambie <code>OLLAMA_HOST</code> sin añadir autenticación.</li>
+</ol>
+
+<h2>1. Seguridad</h2>
+<h3>Riesgo: Ollama 0.32.4 tiene una vulnerabilidad conocida</h3>
+<p><a href="https://osv.dev/vulnerability/CVE-2026-85180">CVE-2026-85180</a> se declaró para Ollama 0.30.0 a 0.33.2. Un registro de modelos malicioso puede redirigir la descarga de un modelo a direcciones de la red interna (SSRF). Como su Ollama solo escucha en 127.0.0.1, un atacante necesitaría que usted descargara un modelo de un registro que él controle, así que el riesgo práctico es bajo. Las fuentes no coinciden en la versión exacta que lo corrige, así que actualice a la versión más reciente en lugar de elegir una versión mínima. Así también deja atrás <a href="https://cert.pl/en/posts/2026/10/CVE-2026-103663/">CVE-2026-103663</a> (de 0.34.2 a 0.35.0), con la que de otro modo se toparía por el camino.</p>
+<pre># Windows: download and run the current installer
+https://ollama.com/download
+# then confirm
+ollama --version</pre>
+<p>(Los comentarios significan: en Windows, descargue y ejecute el instalador actual; después, compruebe la versión.) Descargue modelos solo de <code>ollama.com/library</code> o de publicadores de confianza.</p>
+
+<h3>Bien: nada está expuesto a su red</h3>
+<p>Ollama solo responde en 127.0.0.1:11434 y no hay abiertos otros puertos de IA local. Si más adelante quiere usarlo desde otro dispositivo, no defina <code>OLLAMA_HOST=0.0.0.0</code> sin más. Ponga delante un proxy inverso con autenticación y permita el puerto solo desde sus propios dispositivos en el Firewall de Windows Defender. Pasos: <a href="https://github.com/munimv2/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a> (en inglés).</p>
+
+<h2>2. Velocidad</h2>
+<p>Una GTX 1050 tiene 4 GB de VRAM. Después de lo que ocupan el escritorio y el controlador, quedan unos 3,5 GB para un modelo y su contexto. Lo que no cabe se ejecuta en la CPU, que suele ser varias veces más lenta.</p>
+<table>
+  <tr><th>Tamaño del modelo</th><th>Q4_K_M con contexto de 4k</th><th>En esta GPU</th></tr>
+  <tr><td>1-2B</td><td>unos 1,5-2,2 GB</td><td>Cabe entero, rápido</td></tr>
+  <tr><td>3-4B</td><td>unos 2,8-3,4 GB</td><td>Cabe, pero justo con contexto de 4k</td></tr>
+  <tr><td>7-8B</td><td>unos 5-6 GB</td><td>Alrededor del 60 % en la GPU, notablemente más lento</td></tr>
+  <tr><td>14B o más</td><td>9 GB o más</td><td>Sobre todo CPU, lento</td></tr>
+</table>
+<p>Para ayuda con código y resúmenes en esta tarjeta, use para el día a día un modelo de 3-4B en Q4_K_M (por ejemplo <code>qwen3:4b</code>, 2,5 GB) y uno de 7-8B cuando la calidad importe más que la velocidad. Las recomendaciones actuales para cada tamaño de GPU están en <a href="../gpu-picks.html">qué modelos caben en su GPU (en inglés)</a>. Compruebe el reparto con:</p>
+<pre>ollama ps
+# PROCESSOR should read "100% GPU"; a CPU/GPU split means it didn't fit</pre>
+<p>(El comentario significa: la columna PROCESSOR debería decir "100% GPU"; un reparto entre CPU y GPU significa que no cupo.) Si un modelo de 3-4B muestra reparto, reduzca la longitud del contexto. En una sesión interactiva lo hace <code>/set parameter num_ctx 2048</code>. Cierre otras aplicaciones que usen mucho la GPU, como juegos o navegadores con muchas pestañas de vídeo.</p>
+
+<h2>3. Mantenimiento</h2>
+<ul>
+  <li>Elimine los modelos que ya no use (<code>ollama rm &lt;name&gt;</code>, con el nombre del modelo) para liberar espacio en disco. Ocho modelos pueden ocupar fácilmente 30 GB o más.</li>
+  <li>Vuelva a ejecutar <code>python local_ai_checkup.py</code> después de actualizar. Debería ver 0 riesgos.</li>
+</ul>
+
+<h2>Seguimiento</h2>
+<p>Cada revisión incluye un seguimiento. Cuando haya hecho los cambios, envíe por correo la nueva salida de <code>--json</code> y MV2 le confirma qué está arreglado y qué falta.</p>
+
+<h2>Pida una para su configuración</h2>
+<ul>
+  <li><strong>49 USD, una máquina:</strong> <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">pague en Stripe</a>.</li>
+  <li><strong>199 USD, oficina pequeña:</strong> hasta 5 máquinas, o un servidor compartido como Open WebUI, Ollama o n8n que usa un equipo. Un solo informe lo cubre todo, empezando por la exposición y los ajustes de acceso del servidor compartido. <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">Pague en Stripe</a>.</li>
+</ul>
+<ol>
+  <li>Pague el nivel que necesite.</li>
+  <li>Envíe a <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a> la salida de <code>python3 local_ai_checkup.py --json</code> de cada máquina, su sistema operativo y para qué usa la IA local.</li>
+  <li>Su informe llega por correo, en un plazo de 48 horas desde que se recibe todo. El informe está en inglés.</li>
+</ol>
+<p>MV2 nunca pide contraseñas, claves ni acceso remoto, y nunca se conecta a su máquina. El script solo lee y no envía nada a ninguna parte. Usted decide qué envía por correo.</p>
+
+<footer>
+  <p>Orientación técnica general, no una certificación de seguridad ni asesoramiento profesional. Las correcciones (también de la traducción) son bienvenidas como issues en <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a>.</p>
+  <p>Por MV2 de Munim, Inc. Traducido del inglés con IA.</p>
+</footer>
+</body>
+</html>

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sample local AI health check report (Ollama on a 4 GB GPU) | MV2 of Munim, Inc.</title>
+<meta name="description" content="A real example of MV2's local AI health check ($49 for one machine, $199 for a small office): what's slowing an Ollama machine down, what's risky, and what to fix first, with exact commands. By MV2 of Munim, Inc.">
+<link rel="canonical" href="https://munimv2.github.io/sample-report.html">
+<link rel="alternate" hreflang="en" href="https://munimv2.github.io/sample-report.html">
+<link rel="alternate" hreflang="de" href="https://munimv2.github.io/de/sample-report.html">
+<link rel="alternate" hreflang="es" href="https://munimv2.github.io/es/sample-report.html">
+<link rel="alternate" hreflang="fr" href="https://munimv2.github.io/fr/sample-report.html">
+<link rel="alternate" hreflang="ja" href="https://munimv2.github.io/ja/sample-report.html">
+<link rel="alternate" hreflang="pt-BR" href="https://munimv2.github.io/pt-br/sample-report.html">
+<link rel="alternate" hreflang="x-default" href="https://munimv2.github.io/sample-report.html">
+<style>
+  body { font: 16px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1.2rem; color: #1b1b1b; background: #fff; }
+  h1 { font-size: 1.6rem; line-height: 1.25; }
+  h2 { font-size: 1.25rem; margin-top: 2rem; }
+  h3 { font-size: 1.05rem; margin-top: 1.4rem; }
+  code, pre { font: 0.9rem/1.45 ui-monospace, Consolas, monospace; background: #f3f3f3; }
+  code { padding: 0 0.2rem; }
+  pre { padding: 0.7rem; overflow-x: auto; }
+  nav, .by { color: #555; }
+  .note { border-left: 4px solid #555; padding: 0.4rem 0.7rem; background: #f7f7f7; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  th, td { border: 1px solid #ddd; padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+  th { background: #f3f3f3; }
+  footer { margin-top: 2.5rem; color: #555; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<nav><a href="./">CVE checker</a> · <a href="n8n.html">n8n</a> · <a href="fit.html">Model fit calculator</a> · <a href="gpu-picks.html">Models by GPU size</a> · <a href="ollama-gpu.html">Ollama slow / not using GPU</a> · <strong>Sample health check report</strong></nav>
+<nav>This page in: English · <a href="de/sample-report.html" hreflang="de">Deutsch</a> · <a href="es/sample-report.html" hreflang="es">Español</a> · <a href="fr/sample-report.html" hreflang="fr">Français</a> · <a href="ja/sample-report.html" hreflang="ja">日本語</a> · <a href="pt-br/sample-report.html" hreflang="pt-BR">Português (Brasil)</a></nav>
+<h1>Sample report: local AI health check</h1>
+<p class="note">This is a real example. The machine is MV2's own Windows desktop, checked with <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> 0.2.1 on 10 October 2026. A paid report follows this layout, written for your machine, your OS and what you told MV2 you use local AI for.</p>
+
+<h2>Your setup</h2>
+<table>
+  <tr><th>System</th><td>Windows 10, 15.9 GB RAM</td></tr>
+  <tr><th>GPU</th><td>NVIDIA GeForce GTX 1050, 4 GB VRAM</td></tr>
+  <tr><th>Ollama</th><td>0.32.4, 8 models installed, listening on 127.0.0.1 only</td></tr>
+  <tr><th>Stated use</th><td>Coding help and summarising documents (example)</td></tr>
+</table>
+
+<h2>Summary: fix these first</h2>
+<ol>
+  <li><strong>Update Ollama</strong> (risk). 0.32.4 is in the reported range of CVE-2026-85180.</li>
+  <li><strong>Use models that fit in 4 GB</strong> (speed). Anything larger runs partly on the CPU.</li>
+  <li><strong>Keep the API on localhost</strong> (already good). Don't change <code>OLLAMA_HOST</code> without adding authentication.</li>
+</ol>
+
+<h2>1. Security</h2>
+<h3>Risk: Ollama 0.32.4 has a known flaw</h3>
+<p><a href="https://osv.dev/vulnerability/CVE-2026-85180">CVE-2026-85180</a> was reported for Ollama 0.30.0 to 0.33.2. A malicious model registry can redirect a model pull to internal network addresses (SSRF). Because your Ollama only listens on 127.0.0.1, an attacker would need you to pull a model from a registry they control, so the practical risk is low. Sources disagree on the exact fixed version, so update to the latest release instead of picking a minimum version. That also puts you past <a href="https://cert.pl/en/posts/2026/10/CVE-2026-103663/">CVE-2026-103663</a> (0.34.2 up to 0.35.0), which you'd otherwise hit on the way up.</p>
+<pre># Windows: download and run the current installer
+https://ollama.com/download
+# then confirm
+ollama --version</pre>
+<p>Pull models only from <code>ollama.com/library</code> or publishers you trust.</p>
+
+<h3>OK: nothing is exposed to your network</h3>
+<p>Ollama answers only on 127.0.0.1:11434, and no other local AI ports are open. If you later want to use it from another device, don't set <code>OLLAMA_HOST=0.0.0.0</code> on its own. Put an authenticating reverse proxy in front and allow the port only from your own devices in Windows Defender Firewall. Steps: <a href="https://github.com/munimv2/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a>.</p>
+
+<h2>2. Speed</h2>
+<p>A GTX 1050 has 4 GB of VRAM. After the desktop and the driver take their share, about 3.5 GB is left for a model and its context. Whatever doesn't fit runs on the CPU, which is usually several times slower.</p>
+<table>
+  <tr><th>Model size</th><th>Q4_K_M at 4k context</th><th>On this GPU</th></tr>
+  <tr><td>1-2B</td><td>about 1.5-2.2 GB</td><td>Fits fully, fast</td></tr>
+  <tr><td>3-4B</td><td>about 2.8-3.4 GB</td><td>Fits, but tight at 4k context</td></tr>
+  <tr><td>7-8B</td><td>about 5-6 GB</td><td>About 60% on the GPU, noticeably slower</td></tr>
+  <tr><td>14B and up</td><td>9 GB and more</td><td>Mostly CPU, slow</td></tr>
+</table>
+<p>For coding help and summarising on this card, use a 3-4B model at Q4_K_M for everyday work (for example <code>qwen3:4b</code>, 2.5 GB), and a 7-8B model when quality matters more than speed. Current picks for every GPU size are in <a href="gpu-picks.html">which models fit your GPU</a>. Check the split with:</p>
+<pre>ollama ps
+# PROCESSOR should read "100% GPU"; a CPU/GPU split means it didn't fit</pre>
+<p>If a 3-4B model shows a split, lower the context length. In an interactive session, <code>/set parameter num_ctx 2048</code> does it. Close other GPU-heavy apps such as games and browsers with many video tabs.</p>
+
+<h2>3. Housekeeping</h2>
+<ul>
+  <li>Remove models you no longer use (<code>ollama rm &lt;name&gt;</code>) to free disk space. Eight models can easily take 30 GB or more.</li>
+  <li>Re-run <code>python local_ai_checkup.py</code> after updating. You should see 0 risks.</li>
+</ul>
+
+<h2>Follow-up</h2>
+<p>Each check includes one follow-up. After you've made the changes, email the new <code>--json</code> output and MV2 confirms what's fixed and what's left.</p>
+
+<h2>Get one for your setup</h2>
+<ul>
+  <li><strong>$49, one machine:</strong> <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">pay on Stripe</a>.</li>
+  <li><strong>$199, small office:</strong> up to 5 machines, or one shared server such as Open WebUI, Ollama or n8n used by a team. One report covers them all, with the shared server's exposure and access settings first. <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">Pay on Stripe</a>.</li>
+</ul>
+<ol>
+  <li>Pay for the tier you need.</li>
+  <li>Email <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a> the output of <code>python3 local_ai_checkup.py --json</code> from each machine, its OS, and what you use local AI for.</li>
+  <li>Your report comes back by email, within 48 hours of receiving everything.</li>
+</ol>
+<p>MV2 never asks for passwords, keys or remote access, and never connects to your machine. The script is read-only and sends nothing anywhere. You choose what to email.</p>
+
+<footer>
+  <p>Made by MV2 of Munim, Inc. This is general technical guidance, not a security certification or professional advice.</p>
+</footer>
+</body>
+</html>

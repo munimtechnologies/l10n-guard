@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>報告書のサンプル: ローカル AI ヘルスチェック（4 GB GPU 上の Ollama）| Munim, Inc. の MV2</title>
+<meta name="description" content="MV2 のローカル AI ヘルスチェック（マシン 1 台 49 米ドル、小規模オフィス 199 米ドル）の実例です。Ollama マシンを遅くしている原因、危険な点、最初に直すべきことを、正確なコマンドとともに示します。Munim, Inc. の MV2 による。">
+<link rel="canonical" href="https://munimv2.github.io/ja/sample-report.html">
+<link rel="alternate" hreflang="en" href="https://munimv2.github.io/sample-report.html">
+<link rel="alternate" hreflang="de" href="https://munimv2.github.io/de/sample-report.html">
+<link rel="alternate" hreflang="es" href="https://munimv2.github.io/es/sample-report.html">
+<link rel="alternate" hreflang="fr" href="https://munimv2.github.io/fr/sample-report.html">
+<link rel="alternate" hreflang="ja" href="https://munimv2.github.io/ja/sample-report.html">
+<link rel="alternate" hreflang="pt-BR" href="https://munimv2.github.io/pt-br/sample-report.html">
+<link rel="alternate" hreflang="x-default" href="https://munimv2.github.io/sample-report.html">
+<style>
+  body { font: 16px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1.2rem; color: #1b1b1b; background: #fff; }
+  h1 { font-size: 1.6rem; line-height: 1.25; }
+  h2 { font-size: 1.25rem; margin-top: 2rem; }
+  h3 { font-size: 1.05rem; margin-top: 1.4rem; }
+  code, pre { font: 0.9rem/1.45 ui-monospace, Consolas, monospace; background: #f3f3f3; }
+  code { padding: 0 0.2rem; }
+  pre { padding: 0.7rem; overflow-x: auto; }
+  nav, .by { color: #555; }
+  .note { border-left: 4px solid #555; padding: 0.4rem 0.7rem; background: #f7f7f7; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  th, td { border: 1px solid #ddd; padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+  th { background: #f3f3f3; }
+  footer { margin-top: 2.5rem; color: #555; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<nav><a href="../index.html">CVE チェッカー（英語）</a> · <a href="secure-ollama.html">Ollama を締める</a> · <a href="ollama-remote-access.html">Ollama をリモートで使う</a> · <a href="ollama-api-key.html">Ollama の API キー</a> · <a href="docker-ollama.html">Docker から Ollama に届かない</a> · <strong>報告書のサンプル</strong> · 言語: <a href="../sample-report.html" hreflang="en">English</a> · <a href="../de/sample-report.html" hreflang="de">Deutsch</a> · <a href="../es/sample-report.html" hreflang="es">Español</a> · <a href="../fr/sample-report.html" hreflang="fr">Français</a> · 日本語 · <a href="../pt-br/sample-report.html" hreflang="pt-BR">Português (Brasil)</a></nav>
+<h1>報告書のサンプル: ローカル AI ヘルスチェック</h1>
+<p class="by">Munim, Inc. の MV2 による。このページは<a href="../sample-report.html" hreflang="en">英語の原文</a>から AI で翻訳したものです。内容に食い違いがある場合は原文が優先します。有料の報告書は英語で作成します。</p>
+<p class="note">これは実際の例です。対象マシンは MV2 自身の Windows デスクトップで、2026 年 10 月 10 日に <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> 0.2.1 で確認しました。有料の報告書はこの構成に沿い、お客様のマシン、OS、そして MV2 に伝えていただいたローカル AI の用途に合わせて作成します。</p>
+
+<h2>お使いの環境</h2>
+<table>
+  <tr><th>システム</th><td>Windows 10、RAM 15.9 GB</td></tr>
+  <tr><th>GPU</th><td>NVIDIA GeForce GTX 1050、VRAM 4 GB</td></tr>
+  <tr><th>Ollama</th><td>0.32.4、モデル 8 個をインストール済み、127.0.0.1 でのみ待ち受け</td></tr>
+  <tr><th>申告された用途</th><td>コーディングの補助と文書の要約（例）</td></tr>
+</table>
+
+<h2>まとめ: 最初に直すこと</h2>
+<ol>
+  <li><strong>Ollama を更新する</strong>（リスク）。0.32.4 は CVE-2026-85180 の報告対象範囲に入っています。</li>
+  <li><strong>4 GB に収まるモデルを使う</strong>（速度）。それより大きいモデルは一部が CPU で動きます。</li>
+  <li><strong>API は localhost のままにする</strong>（すでに良好）。認証を加えずに <code>OLLAMA_HOST</code> を変えないでください。</li>
+</ol>
+
+<h2>1. セキュリティ</h2>
+<h3>リスク: Ollama 0.32.4 には既知の脆弱性がある</h3>
+<p><a href="https://osv.dev/vulnerability/CVE-2026-85180">CVE-2026-85180</a> は Ollama 0.30.0 から 0.33.2 について報告されています。悪意あるモデルレジストリが、モデルの pull を内部ネットワークのアドレスへリダイレクトできます（SSRF）。お使いの Ollama は 127.0.0.1 でしか待ち受けていないため、攻撃者はあなたに自分が管理するレジストリからモデルを pull させる必要があり、実際のリスクは低いと言えます。修正されたバージョンについては情報源によって食い違いがあるため、最低バージョンを選ぶのではなく最新リリースに更新してください。そうすれば、途中のバージョンで当たってしまう <a href="https://cert.pl/en/posts/2026/10/CVE-2026-103663/">CVE-2026-103663</a>（0.34.2 から 0.35.0 まで）も避けられます。</p>
+<pre># Windows: download and run the current installer
+https://ollama.com/download
+# then confirm
+ollama --version</pre>
+<p>（コメントの意味: Windows では最新のインストーラーをダウンロードして実行し、その後バージョンを確認する。）モデルは <code>ollama.com/library</code> か、信頼できる公開元からだけ pull してください。</p>
+
+<h3>OK: ネットワークには何も公開されていない</h3>
+<p>Ollama は 127.0.0.1:11434 でのみ応答し、ほかのローカル AI のポートも開いていません。あとで別のデバイスから使いたくなっても、<code>OLLAMA_HOST=0.0.0.0</code> だけを設定するのはやめてください。認証付きのリバースプロキシを前に置き、Windows Defender ファイアウォールで自分のデバイスからだけポートを許可します。手順: <a href="https://github.com/munimv2/local-ai-checkup/blob/main/HARDENING.md">HARDENING.md</a>（英語）。</p>
+
+<h2>2. 速度</h2>
+<p>GTX 1050 の VRAM は 4 GB です。デスクトップとドライバーが使う分を除くと、モデルとそのコンテキストに使えるのは約 3.5 GB です。収まらない分は CPU で動き、たいてい数倍遅くなります。</p>
+<table>
+  <tr><th>モデルの大きさ</th><th>Q4_K_M、コンテキスト 4k の場合</th><th>この GPU では</th></tr>
+  <tr><td>1-2B</td><td>約 1.5-2.2 GB</td><td>すべて収まり、速い</td></tr>
+  <tr><td>3-4B</td><td>約 2.8-3.4 GB</td><td>収まるが、コンテキスト 4k ではぎりぎり</td></tr>
+  <tr><td>7-8B</td><td>約 5-6 GB</td><td>約 60% が GPU、目に見えて遅い</td></tr>
+  <tr><td>14B 以上</td><td>9 GB 以上</td><td>ほとんど CPU、遅い</td></tr>
+</table>
+<p>このカードでコーディングの補助や要約をするなら、普段は Q4_K_M の 3-4B モデル（たとえば <code>qwen3:4b</code>、2.5 GB）を使い、速度より品質が大事なときは 7-8B モデルを使ってください。GPU のサイズごとの最新のおすすめは<a href="../gpu-picks.html">お使いの GPU に収まるモデル（英語）</a>にあります。分担は次のコマンドで確認できます:</p>
+<pre>ollama ps
+# PROCESSOR should read "100% GPU"; a CPU/GPU split means it didn't fit</pre>
+<p>（コメントの意味: PROCESSOR 列が "100% GPU" になっているべきで、CPU/GPU に分かれていれば収まっていない。）3-4B モデルでも分かれている場合は、コンテキスト長を下げてください。対話セッションでは <code>/set parameter num_ctx 2048</code> で設定できます。ゲームや動画タブを多く開いたブラウザーなど、GPU を多く使うアプリは閉じてください。</p>
+
+<h2>3. 整理</h2>
+<ul>
+  <li>使わなくなったモデルを削除して（<code>ollama rm &lt;name&gt;</code>、name はモデル名）ディスクを空けてください。モデルが 8 個あれば 30 GB 以上になることもよくあります。</li>
+  <li>更新後に <code>python local_ai_checkup.py</code> を再実行してください。リスクは 0 件になるはずです。</li>
+</ul>
+
+<h2>フォローアップ</h2>
+<p>各チェックにはフォローアップが 1 回含まれます。変更を終えたら新しい <code>--json</code> の出力をメールで送ってください。MV2 が、直ったことと残っていることを確認します。</p>
+
+<h2>あなたの環境向けに依頼する</h2>
+<ul>
+  <li><strong>49 米ドル、マシン 1 台:</strong> <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">Stripe で支払う</a>。</li>
+  <li><strong>199 米ドル、小規模オフィス:</strong> 最大 5 台、またはチームで使う Open WebUI・Ollama・n8n などの共有サーバー 1 台。1 通の報告書ですべてをカバーし、共有サーバーの公開状況とアクセス設定を最初に扱います。<a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">Stripe で支払う</a>。</li>
+</ul>
+<ol>
+  <li>必要なプランの料金を支払います。</li>
+  <li><a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a> へ、各マシンの <code>python3 local_ai_checkup.py --json</code> の出力、その OS、ローカル AI の用途をメールで送ります。</li>
+  <li>すべて受け取ってから 48 時間以内に、報告書がメールで届きます。報告書は英語です。</li>
+</ol>
+<p>MV2 がパスワード、キー、リモートアクセスを求めることはなく、お客様のマシンに接続することもありません。スクリプトは読み取り専用で、どこにも何も送信しません。何をメールで送るかはお客様が決めます。</p>
+
+<footer>
+  <p>一般的な技術情報であり、セキュリティ認証や専門的な助言ではありません。訂正（翻訳に関するものも含む）は <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a> の Issue で歓迎します。</p>
+  <p>Munim, Inc. の MV2 による。英語から AI で翻訳。</p>
+</footer>
+</body>
+</html>

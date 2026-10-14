@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open WebUI ou n8n no Docker não conecta ao Ollama? Resolva sem expor o Ollama (2026)</title>
+<meta name="description" content="Por que Open WebUI, n8n, Dify ou AnythingLLM no Docker dão 'Connection refused', 'Connect call failed ('127.0.0.1', 11434)' ou 'ECONNREFUSED ::1:11434', e quatro soluções para Docker Desktop e Linux que não abrem o Ollama para a sua rede inteira. Com um teste de uma linha. Por MV2 da Munim, Inc.">
+<link rel="canonical" href="https://munimv2.github.io/pt-br/docker-ollama.html">
+<link rel="alternate" hreflang="en" href="https://munimv2.github.io/docker-ollama.html">
+<link rel="alternate" hreflang="de" href="https://munimv2.github.io/de/docker-ollama.html">
+<link rel="alternate" hreflang="es" href="https://munimv2.github.io/es/docker-ollama.html">
+<link rel="alternate" hreflang="fr" href="https://munimv2.github.io/fr/docker-ollama.html">
+<link rel="alternate" hreflang="ja" href="https://munimv2.github.io/ja/docker-ollama.html">
+<link rel="alternate" hreflang="pt-BR" href="https://munimv2.github.io/pt-br/docker-ollama.html">
+<link rel="alternate" hreflang="x-default" href="https://munimv2.github.io/docker-ollama.html">
+<style>
+  body { font: 16px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1.2rem; color: #1b1b1b; background: #fff; }
+  h1 { font-size: 1.6rem; line-height: 1.25; }
+  h2 { font-size: 1.25rem; margin-top: 2rem; }
+  code, pre { font: 0.9rem/1.45 ui-monospace, Consolas, monospace; background: #f3f3f3; }
+  code { padding: 0 0.2rem; }
+  pre { padding: 0.7rem; overflow-x: auto; }
+  nav, .by { color: #555; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { border: 1px solid #ddd; padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+  footer { margin-top: 2.5rem; color: #555; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<nav><a href="../index.html">Verificador de CVEs (em inglês)</a> · <a href="secure-ollama.html">Proteger o Ollama</a> · <a href="ollama-remote-access.html">Usar o Ollama remotamente</a> · <a href="ollama-api-key.html">Chave de API do Ollama</a> · <strong>Docker não alcança o Ollama</strong> · Idiomas: <a href="../docker-ollama.html" hreflang="en">English</a> · <a href="../de/docker-ollama.html" hreflang="de">Deutsch</a> · <a href="../es/docker-ollama.html" hreflang="es">Español</a> · <a href="../fr/docker-ollama.html" hreflang="fr">Français</a> · <a href="../ja/docker-ollama.html" hreflang="ja">日本語</a> · Português (Brasil)</nav>
+<h1>Open WebUI ou n8n no Docker não consegue conectar ao Ollama</h1>
+<p class="by">Por MV2 da Munim, Inc. Conferido em 12 de outubro de 2026 com a documentação do Open WebUI e do n8n e o código-fonte do Ollama. Esta página foi traduzida com IA a partir do <a href="../docker-ollama.html" hreflang="en">original em inglês</a>; em caso de divergência, vale o original.</p>
+
+<p><strong>Erros típicos:</strong> o Open WebUI mostra "Ollama: Network Problem" ou "Server Connection Error", ou os logs dizem <code>Connect call failed ('127.0.0.1', 11434)</code>. O teste da credencial do Ollama no n8n falha com <code>ECONNREFUSED 127.0.0.1:11434</code> ou <code>ECONNREFUSED ::1:11434</code>. Dify, Flowise e AnythingLLM dão erros parecidos de "connection refused".</p>
+<p><strong>A causa:</strong> dentro de um contêiner, <code>localhost</code> e <code>127.0.0.1</code> são o próprio contêiner, não o seu computador. Por padrão, o Ollama escuta em <code>127.0.0.1:11434</code> no host, então um contêiner que usa <code>http://localhost:11434</code> está batendo na porta errada.</p>
+<p>A solução rápida que muitos guias dão é <code>OLLAMA_HOST=0.0.0.0</code>. Funciona, mas também abre o Ollama, que não tem login, para todos os dispositivos da sua rede. Tente antes as soluções abaixo.</p>
+
+<h2>Primeiro, teste: um comando</h2>
+<p>No host, confira se o Ollama está no ar: <code>curl http://127.0.0.1:11434/api/version</code>. Depois teste o endereço que o seu app usa de dentro de um contêiner descartável:</p>
+<pre>docker run --rm --add-host=host.docker.internal:host-gateway curlimages/curl -s http://host.docker.internal:11434/api/version</pre>
+<p>Uma resposta como <code>{"version":"0.x.y"}</code> significa que essa URL funciona a partir dos contêineres. "Connection refused" ou um timeout significa que não; continue lendo conforme a sua configuração. A imagem do Open WebUI inclui o curl, então você também pode rodar <code>docker exec open-webui curl -s http://host.docker.internal:11434/api/version</code>.</p>
+
+<h2>Qual solução serve para a sua configuração</h2>
+<table>
+  <tr><th>A sua configuração</th><th>URL base no app</th><th>Observações</th></tr>
+  <tr><td>Docker Desktop (Mac ou Windows), app do Ollama no host</td><td><code>http://host.docker.internal:11434</code></td><td>Funciona de cara; o Ollama pode continuar em 127.0.0.1. Solução 1.</td></tr>
+  <tr><td>Linux, Ollama instalado no host, app no Docker</td><td><code>http://host.docker.internal:11434</code> mais <code>--add-host</code></td><td>O Ollama também precisa escutar onde os contêineres alcançam. Solução 2 ou 3.</td></tr>
+  <tr><td>Ollama e o app no mesmo arquivo Compose</td><td><code>http://ollama:11434</code> (o nome do serviço)</td><td>A melhor opção; o Ollama não precisa de porta publicada. Solução 4.</td></tr>
+  <tr><td>Ollama no Docker, app instalado no host (por exemplo, n8n via npm)</td><td><code>http://127.0.0.1:11434</code></td><td>Publique com <code>-p 127.0.0.1:11434:11434</code>. Use 127.0.0.1, não localhost, para evitar o erro <code>::1</code>.</td></tr>
+</table>
+
+<h2>Solução 1: Docker Desktop (Mac, Windows)</h2>
+<p>O Docker Desktop oferece <code>host.docker.internal</code> a todos os contêineres e o encaminha para o seu computador, então defina a URL do Ollama no app como <code>http://host.docker.internal:11434</code>. No Open WebUI, é a variável de ambiente <code>OLLAMA_BASE_URL</code> (ou "Admin Settings" → "Connections"). No n8n, edite a "Base URL" da credencial do Ollama. Não é preciso mudar o <code>OLLAMA_HOST</code> do Ollama.</p>
+<pre>docker run -d -p 127.0.0.1:3000:8080 --add-host=host.docker.internal:host-gateway \
+  -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
+  -v open-webui:/app/backend/data --name open-webui --restart always \
+  ghcr.io/open-webui/open-webui:main</pre>
+<p><code>127.0.0.1:3000</code> restringe o Open WebUI a este computador. Use <code>-p 3000:8080</code> só se outros dispositivos precisarem abri-lo e, nesse caso, <a href="secure-ollama.html">desative os cadastros abertos</a>. Para acessar pelo celular sem abri-lo para a rede, veja <a href="ollama-remote-access.html#webui">Open WebUI pelo Tailscale Serve</a>.</p>
+
+<h2>Solução 2: Linux, o jeito seguro mais simples: rede do host para o app</h2>
+<p>No Linux, <code>--network=host</code> coloca o contêiner na rede do host, então <code>127.0.0.1:11434</code> é de fato o Ollama do host e o Ollama pode continuar vinculado ao localhost. A documentação do Open WebUI traz essa solução; repare que a porta passa a ser 8080:</p>
+<pre>docker run -d --network=host \
+  -e OLLAMA_BASE_URL=http://127.0.0.1:11434 \
+  -v open-webui:/app/backend/data --name open-webui --restart always \
+  ghcr.io/open-webui/open-webui:main</pre>
+<p>Abra <code>http://localhost:8080</code>. Com a rede do host, o Open WebUI escuta na porta 8080 como um programa comum, e aqui o firewall do host (ufw, firewalld) <em>vale</em>. Libere a 8080 só a partir de onde você precisa.</p>
+
+<h2>Solução 3: Linux, host.docker.internal com o Ollama acessível só pelos contêineres</h2>
+<p>No Linux, <code>--add-host=host.docker.internal:host-gateway</code> (ou <code>extra_hosts: ["host.docker.internal:host-gateway"]</code> no Compose) aponta esse nome para o endereço da bridge do Docker, normalmente <code>172.17.0.1</code>. O Ollama em <code>127.0.0.1</code> não escuta ali, então ele precisa escutar de forma mais ampla, e um firewall deve barrar todo mundo menos os contêineres:</p>
+<ol>
+  <li>Faça o Ollama escutar em todas as interfaces: <code>sudo systemctl edit ollama.service</code>, adicione
+<pre>[Service]
+Environment="OLLAMA_HOST=0.0.0.0:11434"</pre>
+  e depois <code>sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart ollama</code>.</li>
+  <li>Libere só as redes do Docker e bloqueie o resto (exemplo com ufw; as redes padrão do Docker ficam em 172.16.0.0/12):
+<pre>sudo ufw allow from 172.16.0.0/12 to any port 11434 proto tcp
+sudo ufw deny 11434/tcp</pre>
+  A ordem importa: a regra allow precisa vir primeiro (<code>sudo ufw status numbered</code> mostra a ordem). Se o ufw está ativo com o "deny incoming" padrão, é a regra allow que deixa os contêineres entrarem. Um contêiner bloqueado costuma ver um timeout, e não "refused".</li>
+  <li>De outro dispositivo da sua rede, <code>curl http://&lt;this machine's LAN IP&gt;:11434/api/version</code> (com o IP desta máquina na rede local) agora deve falhar, enquanto o teste do contêiner descartável acima funciona.</li>
+</ol>
+<p>Diferente das portas publicadas com <code>docker -p</code>, que passam por fora do ufw, o Ollama instalado no host é um programa comum, então essas regras do ufw valem para ele.</p>
+
+<h2>Solução 4: coloque o Ollama no mesmo arquivo Compose</h2>
+<p>Contêineres na mesma rede do Compose se alcançam pelo nome do serviço, então o Ollama não precisa de porta publicada e nada fora do Docker consegue alcançá-lo:</p>
+<pre>services:
+  ollama:
+    image: ollama/ollama
+    volumes: [ "ollama:/root/.ollama" ]
+    # no "ports:" - only containers on this network can reach it
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    ports: [ "127.0.0.1:3000:8080" ]
+    volumes: [ "open-webui:/app/backend/data" ]
+volumes:
+  ollama: {}
+  open-webui: {}</pre>
+<p>(O comentário no arquivo diz: sem "ports:", só contêineres desta rede conseguem alcançá-lo.) n8n, Dify, Flowise ou AnythingLLM no mesmo arquivo também usam <code>http://ollama:11434</code>. Para usar uma GPU, adicione ao serviço <code>ollama</code> a reserva de dispositivo da documentação do Ollama para Docker. Se o app roda em outro projeto do Compose, conecte os dois a uma mesma rede externa compartilhada.</p>
+
+<h2>Ainda falhando?</h2>
+<ul>
+  <li><strong>n8n no host, <code>ECONNREFUSED ::1:11434</code>:</strong> <code>localhost</code> foi resolvido para IPv6 e o Ollama escuta em IPv4. A documentação do n8n sugere <code>127.0.0.1</code> no lugar de <code>localhost</code>.</li>
+  <li><strong>Podman:</strong> o nome do host é <code>host.containers.internal</code>.</li>
+  <li><strong>"403 Forbidden" em vez de "refused":</strong> não é problema de rede: o Ollama respondeu e recusou. Há duas causas comuns. (1) Uma página web ou extensão do navegador chama o Ollama e o <code>OLLAMA_ORIGINS</code> a bloqueia; veja a <a href="../ollama-origins-check.html">verificação no navegador (em inglês)</a>. Open WebUI, n8n e Dify chamam o Ollama a partir do servidor deles e não precisam de <code>OLLAMA_ORIGINS</code>. (2) Um proxy reverso ou túnel repassa o próprio nome de host a um Ollama que escuta em 127.0.0.1. Nesse modo, o Ollama só aceita nomes de Host no estilo localhost, e é por isso que <code>host.docker.internal</code> funciona (termina em <code>.internal</code>). Faça o proxy enviar <code>Host: localhost:11434</code>, como fazem os exemplos do FAQ do Ollama. O Tailscale Serve esbarra na mesma verificação; veja <a href="ollama-remote-access.html#api">por que o tailscale serve retorna 403</a>.</li>
+  <li><strong>Funciona, mas lento:</strong> veja <a href="../ollama-gpu.html">Ollama slow or not using the GPU (em inglês)</a>.</li>
+</ul>
+<p>Depois que conectar, confira se você não abriu mais do que pretendia: rode o script gratuito <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a> (só lê e não envia nada para fora da máquina), que mostra o endereço em que o Ollama escuta, as portas publicadas do Docker e as versões. Veja também <a href="secure-ollama.html">Meu Ollama está exposto?</a></p>
+
+<h2>Prefere que alguém verifique para você?</h2>
+<p>MV2 da Munim, Inc. faz uma <strong>verificação de IA local por US$ 49</strong> para uma máquina, ou uma <strong>verificação para pequenos escritórios por US$ 199</strong> para até 5 máquinas ou um servidor compartilhado de Ollama, Open WebUI ou n8n. Você recebe um relatório escrito do que está exposto, arriscado ou lento e do que corrigir primeiro, com os comandos exatos para o seu sistema operacional. O relatório é em inglês. <a href="../sample-report.html">Veja um relatório de exemplo (em inglês)</a>. <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">Pague US$ 49</a> ou <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">pague US$ 199</a> no Stripe e depois envie para <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a> a saída de <code>python3 local_ai_checkup.py --json</code>, o seu sistema operacional e para que você o usa. MV2 nunca pede senhas, chaves ou acesso remoto.</p>
+
+<footer>
+  <p>Informação técnica geral, não uma certificação de segurança nem consultoria profissional. Altere apenas máquinas que sejam suas ou que você tenha permissão para administrar. Conferido em 12 de outubro de 2026. Correções (inclusive da tradução) são bem-vindas como issues em <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a>.</p>
+  <p>Por MV2 da Munim, Inc. Traduzido do inglês com IA.</p>
+</footer>
+</body>
+</html>
