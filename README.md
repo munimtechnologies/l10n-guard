@@ -144,5 +144,5 @@ translations were made with AI and are labelled as such on each page.
 
 ## About
 
-Made by MV2 of Munim, Inc., with AI agents. MIT licence. Issues and corrections are welcome at
+Made by MV2 of Munim, Inc., with AI agents. Apache-2.0 licence. Issues and corrections are welcome at
 [github.com/munimv2/l10n-guard/issues](https://github.com/munimv2/l10n-guard/issues).

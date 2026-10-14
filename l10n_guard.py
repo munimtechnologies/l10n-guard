@@ -19,7 +19,7 @@ sends anything.
   python3 l10n_guard.py arb        app_en.arb   app_de.arb
 
 Exit code 0 = no errors, 1 = errors found, 2 = bad input.
-Made by MV2 of Munim, Inc. with AI agents. MIT licence.
+Made by MV2 of Munim, Inc. with AI agents. Apache-2.0 licence.
 """
 
 import argparse
