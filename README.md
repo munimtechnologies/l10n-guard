@@ -30,8 +30,9 @@ exactly these.
   and `<xliff:g>` kept. Strings marked `translatable="false"` are skipped. An apostrophe that is
   neither written `\'` nor inside double quotes is an error, because aapt rejects it (`&apos;`
   doesn't help). Plural quantities the source lacks (`few`, `many`) are checked against its
-  `other` form.
-- **Android crashes from `String.format`** (new in 0.5.0, code `java-format`): when the app
+  `other` form. Emoji written as two escapes (`😀`) are read as the one character
+  they encode.
+- **Android crashes from `String.format`** (code `java-format`): when the app
   passes arguments (`getString(id, args)`, `getQuantityString`, Compose `stringResource`),
   Android formats the string with Java's `java.util.Formatter`, which reads the *whole*
   translation first and throws on anything it can't parse. So a translation crashes the app in
@@ -48,6 +49,12 @@ exactly these.
   A `%d` for the source's `%s` is a warning (`java-format-type`): it crashes only if the app
   passes text. Strings marked `formatted="false"`, string arrays, and sources whose only `%` is
   prose (`50% off`) are not checked, because the app doesn't format them.
+
+  **Plurals** (0.5.1): `getQuantityString` passes the same arguments to every quantity, so each
+  translated form is checked against the source form that reads the most of them. A Russian
+  `one` form may use `%2$d из %3$d` when the English `one` is just `File from %1$s` but `other`
+  is `%2$d of %3$d files from %1$s`; and a stray `%` in a `one` form is caught even when the
+  English `one` has no placeholder at all.
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -113,7 +120,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.5.0
+- uses: munimtechnologies/l10n-guard@v0.5.1
   with:
     kind: json
     source: locales/en.json
@@ -124,17 +131,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.5.0
+- uses: munimtechnologies/l10n-guard@v0.5.1
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.5.0
+- uses: munimtechnologies/l10n-guard@v0.5.1
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.5.0
+- uses: munimtechnologies/l10n-guard@v0.5.1
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -143,7 +150,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.5.0
+- uses: munimtechnologies/l10n-guard@v0.5.1
   with:
     kind: dir
     source: docs
@@ -163,8 +170,14 @@ command, code block and external link, including both payment links, survived tr
 translations were made with AI and are labelled as such on each page.
 
 The `java-format` check follows the specifier grammar and checks of OpenJDK's
-`java.util.Formatter`. It is being compared against a real JVM on the translations of open-source
-Android apps; results will be published here.
+`java.util.Formatter`, and it is being measured against a real JVM (OpenJDK 21) on the
+translations of open-source Android apps listed on F-Droid. A first, partial pass read 1,523 of
+4,476 app repositories and 810,419 translations of formatted strings. On those, the static check
+flagged 252 of the 253 translations the JVM rejected whatever the app passes, and it flagged none
+that the JVM accepted (precision 1.0, recall 0.996). The same pass showed both checks shared a
+blind spot for plurals, where an English `one` form can name fewer arguments than the app
+passes. 0.5.1 fixes that, and the full census, with its data, will be published once the corrected
+pass is done.
 
 ## About
 

@@ -33,7 +33,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 ERROR = "error"
 WARNING = "warning"
@@ -504,6 +504,7 @@ def _inner_xml(el):
 
 _QUANTITY_KEY_RE = re.compile(r"^(.*)\[(zero|one|two|few|many|other)\]$")
 _ARRAY_KEY_RE = re.compile(r"\[\d+\]$")
+_QUANTITIES = ("other", "many", "few", "two", "one", "zero")
 
 
 def parse_android(text):
@@ -537,6 +538,18 @@ def android_unformatted(text):
             if el.get("name") and el.get("formatted") == "false"}
 
 
+_SURROGATE_RE = re.compile("[\ud800-\udfff]")
+
+
+def _join_surrogates(text):
+    """Emoji written as two escapes (\\uD83D\\uDE00) unescape to a UTF-16
+    surrogate pair; joins each pair into the character it encodes. A lone
+    surrogate becomes U+FFFD, so the text can always be printed and encoded."""
+    if not _SURROGATE_RE.search(text):
+        return text
+    return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+
+
 def _android_text(raw):
     """The string an app gets at runtime from parse_android's text: markup
     dropped, double quotes removed, backslash escapes resolved and, outside
@@ -567,7 +580,7 @@ def _android_text(raw):
         else:
             out.append(c)
             i += 1
-    return "".join(out)
+    return _join_surrogates("".join(out))
 
 
 _QUOTED_RE = re.compile(r'(?<!\\)"(?:[^"\\]|\\.)*"', re.S)
@@ -578,6 +591,25 @@ def _android_apostrophe(text):
     """True if aapt would reject the text: an apostrophe that is neither
     escaped (\\') nor inside double quotes. &apos; does not escape it."""
     return bool(_BARE_APOSTROPHE_RE.search(_QUOTED_RE.sub("", text)))
+
+
+def _plural_forms(src, base):
+    """The source's quantity forms of one <plurals>, other first."""
+    return [src[k] for k in ("%s[%s]" % (base, q) for q in _QUANTITIES) if k in src]
+
+
+def _plural_format_source(src, base):
+    """getQuantityString formats every quantity with the same arguments, so a
+    translated form may use any argument some source form uses ("File from
+    %1$s" for one, "%2$d of %3$d files from %1$s" for other). Returns the
+    source form that reads the most arguments, other on a tie."""
+    best, most = None, -1
+    for form in _plural_forms(src, base):
+        specs = java_formatted(_android_text(form)) or []
+        count = max((n for n, _ in specs), default=0)
+        if count > most:
+            best, most = form, count
+    return best
 
 
 def check_android(source_text, target_text):
@@ -606,13 +638,24 @@ def check_android(source_text, target_text):
         else:
             problems.append(issue(WARNING, "extra-key", "key not in source", key))
             continue
-        problems.extend(_check_form(source, tgt[key], key, m.group(2) if m else None))
+        found = _check_form(source, tgt[key], key, m.group(2) if m else None)
+        if m:
+            # Every quantity gets the same arguments, so a form may use one
+            # that only another source form shows.
+            shared = set()
+            for form in _plural_forms(src, m.group(1)):
+                shared |= set(placeholders(form))
+            if not set(placeholders(tgt[key])) - shared:
+                found = [p for p in found if p["code"] != "placeholder-extra"]
+        problems.extend(found)
         if _android_apostrophe(tgt[key]):
             problems.append(issue(ERROR, "android-apostrophe",
                                   "apostrophe must be written \\' (or the text put in double "
                                   "quotes), or the build fails", key))
         # getStringArray never formats; a formatted="false" string isn't formatted.
         if not _ARRAY_KEY_RE.search(key) and (m.group(1) if m else key) not in unformatted:
+            if m:
+                source = _plural_format_source(src, m.group(1))
             problems.extend(check_java_format(_android_text(source), _android_text(tgt[key]), key))
     return problems
 
@@ -825,7 +868,7 @@ def _props_unescape(s):
         else:
             out.append(s[i])
             i += 1
-    return "".join(out)
+    return _join_surrogates("".join(out))
 
 
 def _continues(line):

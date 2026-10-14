@@ -193,6 +193,20 @@ ANDROID_JAVA_FR = '''<resources>
 </resources>
 '''
 
+# KDE Connect's pattern: the one form shows only the name, but the app passes
+# the name, the file number and the total to every quantity.
+ANDROID_PLURAL_EN = '''<resources>
+    <plurals name="got"><item quantity="one">File from %1$s</item><item quantity="other">%2$d of %3$d files from %1$s</item></plurals>
+    <plurals name="n"><item quantity="one">One file</item><item quantity="other">%d files</item></plurals>
+</resources>
+'''
+
+ANDROID_PLURAL_RU = '''<resources>
+    <plurals name="got"><item quantity="one">Файл %2$d из %3$d от %1$s</item><item quantity="few">%2$d из %4$d файлов от %1$s</item><item quantity="other">%2$d из %3$d файлов от %1$s</item></plurals>
+    <plurals name="n"><item quantity="one">Один файл, 100%</item><item quantity="other">%d файлов</item></plurals>
+</resources>
+'''
+
 
 class Android(unittest.TestCase):
     def test_parse(self):
@@ -230,6 +244,20 @@ class Android(unittest.TestCase):
                          [("java-format", "done"), ("java-format", "left[other]"),
                           ("java-format", "who"), ("placeholder-extra", "who"),
                           ("placeholder-missing", "raw"), ("placeholder-missing", "who")])
+
+    def test_plural_forms_share_arguments(self):
+        src = g.parse_android(ANDROID_PLURAL_EN)
+        self.assertEqual(g._plural_format_source(src, "got"), "%2$d of %3$d files from %1$s")
+        self.assertEqual(g._plural_format_source(src, "n"), "%d files")
+        problems = g.check_android(ANDROID_PLURAL_EN, ANDROID_PLURAL_RU)
+        errors = sorted((p["code"], p["key"]) for p in problems if p["level"] == g.ERROR)
+        # got[one] may use %2$d and %3$d: the other form shows the app passes them.
+        # got[few] uses a fourth argument nobody passes; n[one] has a stray %.
+        self.assertEqual(errors, [("java-format", "got[few]"), ("java-format", "n[one]"),
+                                  ("placeholder-extra", "got[few]"),
+                                  ("placeholder-missing", "got[few]")])
+        few = [p for p in problems if p["code"] == "java-format" and p["key"] == "got[few]"][0]
+        self.assertIn("uses argument 4 but the source passes 3", few["message"])
 
 
 class JavaFormat(unittest.TestCase):
@@ -283,6 +311,14 @@ class JavaFormat(unittest.TestCase):
         self.assertEqual(g._android_text('"  two  spaces "'), "  two  spaces ")
         self.assertEqual(g._android_text("l\\'appli \\u00e0 50%\n    de %1$s"),
                          "l'appli à 50% de %1$s")
+
+    def test_surrogate_escapes(self):
+        # Emoji written as two \u escapes, as some translation tools export them.
+        text = g._android_text("\\uD83D\\uDE00 %1$s")
+        self.assertEqual(text, "\U0001F600 %1$s")
+        self.assertEqual(text.encode("utf-8"), b"\xf0\x9f\x98\x80 %1$s")
+        self.assertEqual(g._android_text("\\uD83D alone"), "\ufffd alone")
+        self.assertEqual(g.parse_properties("smile=\\uD83D\\uDE00\n"), {"smile": "\U0001F600"})
 
 
 XLIFF12 = '''<?xml version="1.0" encoding="UTF-8"?>
