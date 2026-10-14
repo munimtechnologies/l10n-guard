@@ -169,15 +169,23 @@ with six translations (German, Spanish, French, Japanese, Korean, Brazilian Port
 command, code block and external link, including both payment links, survived translation. Those
 translations were made with AI and are labelled as such on each page.
 
+### Results against a real JVM
+
 The `java-format` check follows the specifier grammar and checks of OpenJDK's
-`java.util.Formatter`, and it is being measured against a real JVM (OpenJDK 21) on the
-translations of open-source Android apps listed on F-Droid. A first, partial pass read 1,523 of
-4,476 app repositories and 810,419 translations of formatted strings. On those, the static check
-flagged 252 of the 253 translations the JVM rejected whatever the app passes, and it flagged none
-that the JVM accepted (precision 1.0, recall 0.996). The same pass showed both checks shared a
-blind spot for plurals, where an English `one` form can name fewer arguments than the app
-passes. 0.5.1 fixes that, and the full census, with its data, will be published once the corrected
-pass is done.
+`java.util.Formatter`. It was measured against the real thing (OpenJDK 21) on every open-source
+Android app listed on F-Droid, in the
+[Android translation-crash census](https://github.com/munimtechnologies/android-translation-crash-census)
+(full pass, 2026-10-14: 4,476 repositories, 1,262,958 translations of formatted strings).
+
+- The JVM rejected 382 translations whatever the app passes. l10n-guard 0.5.1 called 375 of them
+  errors and the other 7 warnings (recall 0.98 for errors). It never called a translation an error
+  that the JVM accepted (precision 1.0).
+- 4 of those 7 warnings are a `%t` (date) conversion where the English has `%d`. The JVM check
+  passes an `Integer`, which `%t` rejects; but the one app involved passes a `Long`, which `%t`
+  accepts and prints as a date. So a warning, not an error, was the right call there.
+- 190 more translations crash only if the app passes text for a `%s`; l10n-guard warns on these.
+
+The census data, with a link to every crashing line, is in that repository under `data/`.
 
 ## About
 
