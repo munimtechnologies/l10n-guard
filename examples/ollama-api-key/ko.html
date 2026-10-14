@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ollama API 키: 로컬 Ollama에는 키가 없습니다. 키를 요구하는 방법(Caddy 또는 nginx)과 Open WebUI, n8n, OpenAI 클라이언트 연결</title>
+<meta name="description" content="OLLAMA_API_KEY는 ollama.com용이지 내 서버용이 아닙니다. 11434 포트의 로컬 API에는 로그인이 없습니다. Caddy나 nginx로 Bearer API 키를 요구하는 방법(또는 Open WebUI를 출입문으로 쓰기), 테스트 방법, Open WebUI·n8n·OpenAI SDK·ollama Python 라이브러리 연결. Munim, Inc.의 MV2 작성.">
+<link rel="canonical" href="https://munimv2.github.io/ko/ollama-api-key.html">
+<link rel="alternate" hreflang="en" href="https://munimv2.github.io/ollama-api-key.html">
+<link rel="alternate" hreflang="de" href="https://munimv2.github.io/de/ollama-api-key.html">
+<link rel="alternate" hreflang="es" href="https://munimv2.github.io/es/ollama-api-key.html">
+<link rel="alternate" hreflang="fr" href="https://munimv2.github.io/fr/ollama-api-key.html">
+<link rel="alternate" hreflang="ja" href="https://munimv2.github.io/ja/ollama-api-key.html">
+<link rel="alternate" hreflang="ko" href="https://munimv2.github.io/ko/ollama-api-key.html">
+<link rel="alternate" hreflang="pt-BR" href="https://munimv2.github.io/pt-br/ollama-api-key.html">
+<link rel="alternate" hreflang="x-default" href="https://munimv2.github.io/ollama-api-key.html">
+<style>
+  body { font: 16px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1.2rem; color: #1b1b1b; background: #fff; word-break: keep-all; }
+  h1 { font-size: 1.6rem; line-height: 1.25; }
+  h2 { font-size: 1.25rem; margin-top: 2rem; }
+  code, pre { font: 0.9rem/1.45 ui-monospace, Consolas, monospace; background: #f3f3f3; word-break: normal; }
+  code { padding: 0 0.2rem; }
+  pre { padding: 0.7rem; overflow-x: auto; }
+  nav, .by { color: #555; }
+  footer { margin-top: 2.5rem; color: #555; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<nav><a href="../index.html">CVE 검사기(영어)</a> · <a href="secure-ollama.html">Ollama 보안 점검</a> · <a href="ollama-remote-access.html">Ollama 원격으로 쓰기</a> · <strong>Ollama API 키</strong> · <a href="docker-ollama.html">Docker에서 Ollama 연결 안 됨</a> · <a href="sample-report.html">보고서 샘플</a> · 언어: <a href="../ollama-api-key.html" hreflang="en">English</a> · <a href="../de/ollama-api-key.html" hreflang="de">Deutsch</a> · <a href="../es/ollama-api-key.html" hreflang="es">Español</a> · <a href="../fr/ollama-api-key.html" hreflang="fr">Français</a> · <a href="../ja/ollama-api-key.html" hreflang="ja">日本語</a> · 한국어 · <a href="../pt-br/ollama-api-key.html" hreflang="pt-BR">Português (Brasil)</a></nav>
+<h1>Ollama API 키: 로컬 Ollama에는 키가 없습니다. 키를 요구하는 방법</h1>
+<p class="by">Munim, Inc.의 MV2 작성. 2026년 10월 12일에 <a href="https://docs.ollama.com/api/authentication">Ollama 인증 문서</a>, <a href="https://docs.ollama.com/faq">Ollama FAQ</a>, <a href="https://docs.n8n.io/integrations/builtin/credentials/ollama/">n8n Ollama 자격 증명 문서</a>, <a href="https://docs.openwebui.com/reference/api-endpoints/">Open WebUI API 문서</a>, <a href="https://caddyserver.com/docs/caddyfile/matchers">Caddy matcher 문서</a>와 대조해 확인했습니다. 본인의 컴퓨터에만 사용하세요. 이 페이지는 <a href="../ollama-api-key.html" hreflang="en">영어 원문</a>을 AI로 번역한 것입니다. 내용이 다를 경우 원문이 우선합니다.</p>
+
+<h2>짧은 답</h2>
+<ul>
+  <li><strong><code>OLLAMA_API_KEY</code>는 ollama.com용입니다.</strong> Ollama의 클라우드 서비스 키로, ollama.com 설정에서 만들어 <code>https://ollama.com/api</code>로 보냅니다. 여러분의 서버를 보호하지는 않습니다.</li>
+  <li><strong>내 Ollama에는 로그인이 없습니다.</strong> Ollama 문서에는 "The local API at <code>http://localhost:11434</code> does not require authentication."(로컬 API는 인증이 필요 없다)라고 쓰여 있습니다. 인증을 켜는 설정은 없습니다. 11434 포트에 닿는 사람은 누구나 여러분의 GPU로 프롬프트를 돌리고 모델을 내려받거나 만들거나 삭제할 수 있습니다.</li>
+  <li><strong>키를 요구하려면 앞에 출입문을 두세요:</strong> Ollama는 <code>127.0.0.1</code>에 두고, <code>Authorization: Bearer &lt;key&gt;</code> 헤더를 검사하는 리버스 프록시를 유일한 출입구로 만듭니다. "API key" 칸을 채우면 OpenAI 방식 클라이언트, n8n, Open WebUI가 보내는 것이 바로 이 헤더입니다.</li>
+</ul>
+<p>Ollama를 실행 중인 그 컴퓨터에서만 쓴다면 이 모든 것이 필요 없습니다. <code>127.0.0.1</code>에 그대로 두세요. 확인 방법은 <a href="secure-ollama.html">보안 체크리스트</a>에 있습니다.</p>
+
+<h2>방법 A: 이미 Open WebUI를 쓰고 있다면 그것을 출입문으로</h2>
+<p>Open WebUI는 <code>/ollama/</code> 아래로 들어온 요청을 Ollama로 전달하며, 자체 API 키를 검사합니다. Ollama는 내부에 남고 추가 소프트웨어도 필요 없습니다.</p>
+<ol>
+  <li>Open WebUI의 <strong>Settings &gt; Account</strong>에서 키를 만듭니다(키는 <code>sk-</code>로 시작). 이 옵션이 보이지 않으면 먼저 관리자가 API 키를 허용해야 합니다. Open WebUI의 API 키 문서를 참고하세요.</li>
+  <li>Open WebUI를 거쳐 Ollama의 네이티브 API를 호출합니다:
+<pre>curl https://webui.example.home/ollama/api/tags -H "Authorization: Bearer sk-..."</pre>
+  또는 Open WebUI의 OpenAI 호환 엔드포인트 <code>/api/chat/completions</code>를 씁니다.</li>
+  <li>n8n에서는 Ollama 자격 증명의 Base URL을 <code>https://webui.example.home/ollama</code>로, API Key를 <code>sk-</code> 키로 설정합니다. n8n 문서도 이 구성의 예로 Open WebUI를 들고 있습니다.</li>
+</ol>
+<p>키는 해당 Open WebUI 사용자의 권한을 그대로 가지므로 앱마다 별도의 사용자를 만들고, Open WebUI를 최신으로 유지하세요(<a href="../openwebui.html">Open WebUI 보안 권고(영어)</a> 참고).</p>
+
+<h2>방법 B: 키를 검사하는 작은 프록시</h2>
+<h3>1. Ollama는 로컬에 두고 키 만들기</h3>
+<p>Ollama는 <code>127.0.0.1:11434</code>(기본값)에서 대기해야 합니다. 예전에 <code>OLLAMA_HOST=0.0.0.0</code>을 설정했다면 <a href="secure-ollama.html">체크리스트</a> 2단계대로 되돌리세요. 그러지 않으면 사람들이 11434 포트로 바로 들어와 프록시를 건너뛸 수 있습니다. 그다음 길고 무작위한 키를 만듭니다:</p>
+<pre>openssl rand -hex 32
+# or
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"</pre>
+<p>(# or는 "또는"이라는 뜻으로, 둘 중 하나만 실행하면 됩니다.)</p>
+
+<h3>2a. Caddy</h3>
+<p><code>ollama.example.com</code>이 이 컴퓨터를 가리키는 실제 도메인이면 Caddy가 HTTPS 인증서를 알아서 받아 옵니다. 도메인과 <code>PASTE_YOUR_KEY_HERE</code>(여기에 키를 붙여 넣음)를 바꾸세요:</p>
+<pre>ollama.example.com {
+    @key header Authorization "Bearer PASTE_YOUR_KEY_HERE"
+    handle @key {
+        reverse_proxy 127.0.0.1:11434 {
+            header_up Host localhost:11434
+            header_up -Authorization
+        }
+    }
+    handle {
+        respond "Missing or wrong API key" 401
+    }
+}</pre>
+<ul>
+  <li><code>header</code> matcher는 정확히 일치해야 하므로 <code>Bearer</code>, 공백 하나, 그리고 정확한 키만 통과합니다. 사람이나 앱마다 다른 키를 주려면 <code>@key { ... }</code> 블록 안에 <code>header Authorization "Bearer ..."</code> 줄을 더 추가하세요. Caddy는 같은 헤더의 값들을 OR로 묶습니다.</li>
+  <li><code>header_up Host localhost:11434</code>는 Ollama FAQ의 프록시 예시를 따른 것입니다. Ollama는 다른 Host 값으로 들어온 요청을 거부할 수 있습니다. <code>header_up -Authorization</code>은 키가 Ollama로 넘어가지 않게 합니다.</li>
+  <li>스트리밍 응답이 한꺼번에 도착한다면 <code>reverse_proxy</code> 블록 안에 <code>flush_interval -1</code>을 추가하세요.</li>
+  <li>이제 이 파일에는 비밀이 들어 있습니다. root와 Caddy만 읽을 수 있게 한 뒤 다시 불러오세요: <code>sudo chown root:caddy /etc/caddy/Caddyfile &amp;&amp; sudo chmod 640 /etc/caddy/Caddyfile &amp;&amp; sudo systemctl reload caddy</code></li>
+</ul>
+<p><strong>LAN 전용 이름</strong>(예: <code>ollama.home</code>): 공인 인증서가 없으므로 사이트 블록 안에 <code>tls internal</code>을 쓰고 Caddy의 루트 인증서를 클라이언트에 설치하세요. 아니면 프록시 없이 Tailscale이나 WireGuard 같은 사설 네트워크를 쓰세요. 믿을 수 없는 네트워크에서 일반 <code>http://</code>로 키를 보내지 마세요. 그 네트워크의 누구나 키를 읽을 수 있습니다.</p>
+
+<h3>2b. nginx</h3>
+<p>다음을 <code>/etc/nginx/conf.d/ollama.conf</code>에 넣습니다. <code>conf.d</code>의 파일은 <code>http</code> 블록 안에서 읽히며, <code>map</code>은 그곳에 있어야 합니다. 인증서 경로는 본인 것으로 바꾸세요(예: certbot으로 받은 것):</p>
+<pre>map $http_authorization $ollama_key_ok {
+    default                        0;
+    "Bearer PASTE_YOUR_KEY_HERE"   1;
+}
+
+server {
+    listen 443 ssl;
+    server_name ollama.example.com;
+    ssl_certificate     /etc/letsencrypt/live/ollama.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ollama.example.com/privkey.pem;
+
+    location / {
+        if ($ollama_key_ok = 0) { return 401; }
+        proxy_pass http://127.0.0.1:11434;
+        proxy_set_header Host localhost:11434;
+        proxy_set_header Authorization "";   # don't pass the key on to Ollama
+        proxy_buffering off;                 # stream tokens as they come
+        proxy_read_timeout 600s;             # long generations
+        client_max_body_size 0;              # model uploads (ollama create)
+    }
+}</pre>
+<p>(주석의 뜻: 키를 Ollama로 넘기지 않음, 토큰을 오는 대로 스트리밍, 긴 생성 작업용, 모델 업로드(ollama create)용.) 키를 추가할 때마다 <code>map</code>에 한 줄씩 넣으세요. 그다음 <code>sudo nginx -t &amp;&amp; sudo systemctl reload nginx</code>를 실행하고, 파일은 root만 읽을 수 있게 하세요(<code>sudo chmod 600 /etc/nginx/conf.d/ollama.conf</code>. nginx는 시작할 때 root로 이 파일을 읽습니다).</p>
+
+<h3>2c. Docker의 Ollama</h3>
+<p><code>ollama</code> 서비스에는 <code>ports:</code>를 아예 주지 말고 Caddy만 공개하세요. 위 Caddyfile에서는 <code>reverse_proxy ollama:11434</code>를 씁니다. 평소의 GPU 설정은 <code>ollama</code> 서비스에 추가하세요.</p>
+<pre>services:
+  ollama:
+    image: ollama/ollama
+    volumes: [ "ollama:/root/.ollama" ]
+    # no "ports:" - only containers on this network can reach it
+  caddy:
+    image: caddy:2
+    ports: [ "80:80", "443:443" ]
+    volumes: [ "./Caddyfile:/etc/caddy/Caddyfile:ro", "caddy_data:/data" ]
+volumes:
+  ollama: {}
+  caddy_data: {}</pre>
+<p>(주석의 뜻: ports:를 쓰지 않는다. 이 네트워크의 컨테이너만 닿을 수 있다.)</p>
+
+<h3>3. 테스트하기</h3>
+<pre># no key: should print 401
+curl -s -o /dev/null -w "%{http_code}\n" https://ollama.example.com/api/version
+
+# with the key: should print {"version":"..."}
+curl -H "Authorization: Bearer YOUR_KEY" https://ollama.example.com/api/version
+
+# from ANOTHER machine, straight to Ollama: should fail to connect
+curl http://&lt;server LAN IP&gt;:11434/api/version</pre>
+<p>(주석의 뜻: 키 없이는 401이 출력되어야 함, 키를 넣으면 버전이 출력되어야 함, <em>다른</em> 컴퓨터에서 Ollama로 직접 접속하면 연결에 실패해야 함. YOUR_KEY는 본인의 키, &lt;server LAN IP&gt;는 서버의 LAN IP로 바꿉니다.) 마지막 명령이 버전으로 응답한다면 프록시를 우회할 수 있다는 뜻입니다. <code>OLLAMA_HOST</code>와 Docker <code>ports:</code>를 다시 확인하세요. Linux에서 ufw는 Docker가 공개한 포트를 막지 않습니다.</p>
+
+<h2>앱 연결하기</h2>
+<ul>
+  <li><strong>다른 컴퓨터의 Open WebUI</strong>: Admin Panel &gt; Settings &gt; Connections. Ollama API 연결을 추가하거나 편집해 URL을 <code>https://ollama.example.com</code>으로 설정하고, Key 칸에 키를 넣습니다(Bearer 토큰으로 전송됨). 사용 중인 버전에 Ollama 연결용 Key 칸이 없다면 대신 <em>OpenAI API</em> 연결로 URL <code>https://ollama.example.com/v1</code>과 키를 추가하세요.</li>
+  <li><strong>n8n</strong>: Ollama 자격 증명에서 Base URL을 <code>https://ollama.example.com</code>으로, API Key를 본인의 키로 설정합니다. n8n은 이를 <code>Authorization: Bearer</code>로 보냅니다.</li>
+  <li><strong>OpenAI SDK와 OpenAI 호환 도구</strong>(Continue, LibreChat 등): base URL을 <code>https://ollama.example.com/v1</code>로, API 키를 본인의 키로 설정합니다.
+<pre>from openai import OpenAI
+client = OpenAI(base_url="https://ollama.example.com/v1", api_key="YOUR_KEY")
+reply = client.chat.completions.create(
+    model="llama3.2", messages=[{"role": "user", "content": "Hello"}])
+print(reply.choices[0].message.content)</pre></li>
+  <li><strong>ollama Python 라이브러리</strong>: 헤더를 직접 넘깁니다.
+<pre>from ollama import Client
+client = Client(host="https://ollama.example.com",
+                headers={"Authorization": "Bearer YOUR_KEY"})
+print(client.list())</pre></li>
+  <li><strong><code>ollama</code> 명령</strong>: 이번 확인 시점에는 사용자 지정 호스트로 본인의 키를 보내게 하는 문서화된 방법이 없습니다. 서버에서 직접 실행하거나 curl 또는 위의 라이브러리를 쓰세요.</li>
+</ul>
+
+<h2>피해야 할 실수</h2>
+<ul>
+  <li><strong>프록시는 있는데 11434 포트가 여전히 열려 있음.</strong> 키는 프록시가 유일한 출입구일 때만 의미가 있습니다. 위의 세 번째 테스트를 실행하세요.</li>
+  <li><strong>API 클라이언트에 Basic 인증.</strong> <a href="secure-ollama.html">체크리스트</a>의 Caddy <code>basic_auth</code> 예시는 브라우저와 <code>curl -u</code>에는 통하지만, OpenAI 방식 클라이언트, n8n, Open WebUI는 <code>Authorization: Bearer</code>를 보내므로 Basic 인증에서 거부됩니다. API 클라이언트에는 이 페이지의 키 검사를 쓰세요.</li>
+  <li><strong>웹 페이지 안의 키.</strong> 브라우저 JavaScript에 있는 것은 그 페이지를 여는 누구나 읽을 수 있습니다. 키는 서버와 앱 설정에만 두고, <code>OLLAMA_ORIGINS</code>는 좁게 유지하세요(<a href="../ollama-origins-check.html">브라우저 점검(영어)</a>).</li>
+  <li><strong>키만으로 다 해결됐다고 생각하기.</strong> 키를 가진 사람은 여전히 모든 엔드포인트에 닿으며, 올해 CVE가 나온 엔드포인트도 마찬가지입니다. Ollama를 최신으로 유지하세요(<a href="../ollama.html">Ollama CVE(영어)</a>, 또는 <a href="../index.html?product=ollama">CVE 검사기(영어)</a>에 버전을 입력). 키를 바꾸려면 설정을 수정하고 프록시를 다시 불러오세요.</li>
+</ul>
+
+<h2>대신 점검받고 싶다면</h2>
+<p>Munim, Inc.의 MV2는 컴퓨터 1대를 위한 <strong>로컬 AI 상태 점검(49달러)</strong>과, 최대 5대 또는 공유 Ollama·Open WebUI 서버 1대를 위한 <strong>소규모 사무실 점검(199달러)</strong>을 제공합니다. 무엇이 노출되어 있고 무엇이 위험하거나 느린지, 무엇부터 고쳐야 하는지를 여러분의 OS에 맞는 정확한 명령과 함께 보고서로 드립니다. 보고서는 영어로 작성됩니다. <a href="sample-report.html">보고서 샘플</a>을 보세요. Stripe에서 <a href="https://buy.stripe.com/5kQcN43Gcfii6Jo47L3Ru00">49달러 결제</a> 또는 <a href="https://buy.stripe.com/aFabJ0foU2vw6Jo8o13Ru01">199달러 결제</a> 후, <a href="mailto:munimversion2@gmail.com">munimversion2@gmail.com</a>으로 무료 스크립트 <a href="https://github.com/munimv2/local-ai-checkup">local-ai-checkup</a>의 <code>python3 local_ai_checkup.py --json</code> 출력, 사용 중인 OS, 용도를 이메일로 보내 주세요. MV2는 비밀번호, 키, 원격 접속을 절대 요청하지 않으니 API 키는 보내지 마세요.</p>
+
+<footer>
+  <p>일반적인 기술 정보이며 보안 인증이나 전문적인 조언이 아닙니다. 본인이 소유하거나 관리 권한이 있는 컴퓨터만 변경하세요. 2026년 10월 12일 확인. 수정 제안(번역 관련 포함)은 <a href="https://github.com/munimv2/local-ai-checkup/issues">github.com/munimv2/local-ai-checkup</a>의 Issue로 환영합니다.</p>
+  <p>Munim, Inc.의 MV2 작성. 영어 원문을 AI로 번역.</p>
+</footer>
+</body>
+</html>

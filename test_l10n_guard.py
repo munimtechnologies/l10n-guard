@@ -347,6 +347,88 @@ class StringCatalog(unittest.TestCase):
             g.check_xcstrings({"version": "1.0"})
 
 
+PROPS_EN = r'''# Shown after login
+welcome = Welcome back, {0}!
+deleted: {0} files were deleted from {1}
+multi = First part \
+        second part
+path=C:\\Users\\{0}
+plain Just text
+unicode=Caf\u00e9
+'''
+
+PROPS_FR = r'''welcome = Bon retour, {0} !
+deleted: {0} fichiers ont été supprimés de l'archive {1}
+multi = Première partie \
+        deuxième partie
+path=C:\\Utilisateurs\\{0}
+plain C'est du texte
+'''
+
+
+class JavaProperties(unittest.TestCase):
+    def test_parse(self):
+        self.assertEqual(g.parse_properties(PROPS_EN),
+                         {"welcome": "Welcome back, {0}!",
+                          "deleted": "{0} files were deleted from {1}",
+                          "multi": "First part second part",
+                          "path": "C:\\Users\\{0}",
+                          "plain": "Just text",
+                          "unicode": "Café"})
+        self.assertEqual(g.parse_properties("! note\na:b\n  c  =  d e\nlast = x\\"),
+                         {"a": "b", "c": "d e", "last": "x"})
+
+    def test_check(self):
+        problems = g.check_properties(PROPS_EN, PROPS_FR)
+        self.assertEqual(sorted((p["code"], p["level"], p["key"]) for p in problems),
+                         [("messageformat-apostrophe", g.ERROR, "deleted"),
+                          ("missing-key", g.WARNING, "unicode")])
+        fixed = PROPS_FR.replace("l'archive", "l''archive")
+        self.assertEqual(codes(g.check_properties(PROPS_EN, fixed), g.ERROR), set())
+
+    def test_messageformat_quote(self):
+        self.assertTrue(g._messageformat_quote("Delete {0}?", "Supprimer l'élément {0} ?"))
+        self.assertFalse(g._messageformat_quote("Delete {0}?", "Supprimer l''élément {0} ?"))
+        self.assertFalse(g._messageformat_quote("Delete {0}?", "Supprimer l’élément {0} ?"))
+        self.assertFalse(g._messageformat_quote("Saved", "Enregistré dans l'application"))
+        self.assertFalse(g._messageformat_quote("It''s {0}", "C''est {0}"))
+
+
+ARB_EN = {
+    "@@locale": "en",
+    "hello": "Hello {name}",
+    "@hello": {"description": "Greeting", "placeholders": {"name": {"type": "String"}}},
+    "inbox": "{count, plural, =0{No messages} =1{One message} other{{count} messages}}",
+    "@inbox": {"placeholders": {"count": {"type": "int"}}},
+    "bye": "Bye <b>{name}</b>",
+}
+
+ARB_JA = {
+    "@@locale": "ja",
+    "hello": "こんにちは {name}",
+    "inbox": "{count, plural, other{{count} 件のメッセージ}}",
+    "bye": "さようなら {name}",
+}
+
+
+class FlutterArb(unittest.TestCase):
+    def test_check(self):
+        problems = g.check_arb(ARB_EN, ARB_JA)
+        self.assertEqual([(p["code"], p["level"], p["key"]) for p in problems],
+                         [("tags", g.ERROR, "bye")])
+        dropped = dict(ARB_JA, inbox="{n, plural, other{メッセージ}}")
+        self.assertIn("placeholder-missing", codes(g.check_arb(ARB_EN, dropped), g.ERROR))
+
+    def test_metadata_ignored_and_locale(self):
+        same_locale = dict(ARB_JA)
+        same_locale["@@locale"] = "en"
+        same_locale["bye"] = "さようなら <b>{name}</b>"
+        problems = g.check_arb(ARB_EN, same_locale)
+        self.assertEqual([(p["code"], p["level"]) for p in problems], [("locale", g.WARNING)])
+        with self.assertRaises(ValueError):
+            g.check_arb(ARB_EN, ["not", "an", "object"])
+
+
 SRC_HTML = ('<html lang="en"><body><p>Run <code>ollama serve</code> on port 11434.</p>'
             '<pre>docker run -p 127.0.0.1:11434:11434 ollama/ollama</pre>'
             '<a href="https://buy.stripe.com/x">Pay</a> <a href="other.html">More</a></body></html>')
@@ -525,6 +607,24 @@ class Cli(unittest.TestCase):
             err = io.StringIO()
             with contextlib.redirect_stderr(err):
                 self.assertEqual(g.run(["android", en, broken]), 2)
+
+    def test_properties_and_arb_kinds(self):
+        with tempfile.TemporaryDirectory() as d:
+            en = _write(d, "messages.properties", PROPS_EN)
+            fr = _write(d, "messages_fr.properties", PROPS_FR)
+            de = os.path.join(d, "messages_de.properties")
+            with open(de, "wb") as f:
+                f.write("welcome = Willkommen zurück, {0}!\n".encode("latin-1"))
+            arb_en = _write(d, "app_en.arb", json.dumps(ARB_EN))
+            arb_ja = _write(d, "app_ja.arb", json.dumps(ARB_JA, ensure_ascii=False))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(g.run(["properties", en, fr]), 1)
+                self.assertEqual(g.run(["properties", en, de]), 0)
+                self.assertEqual(g.run(["arb", arb_en, arb_ja]), 1)
+            text = out.getvalue()
+            self.assertIn("messageformat-apostrophe [deleted]", text)
+            self.assertIn("tags [bye]", text)
 
 
 if __name__ == "__main__":

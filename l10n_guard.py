@@ -6,15 +6,17 @@ not have: placeholders, HTML tags, code blocks, inline code, links, numbers,
 plural forms, hreflang alternates. Standard library only; reads files, never
 sends anything.
 
-  python3 l10n_guard.py html      source.html  translated.html
-  python3 l10n_guard.py json      en.json      de.json
-  python3 l10n_guard.py po        de.po
-  python3 l10n_guard.py md        README.md    README.de.md
-  python3 l10n_guard.py dir       site         site/de
-  python3 l10n_guard.py android   values/strings.xml  values-fr/strings.xml
-  python3 l10n_guard.py strings   en.lproj/Localizable.strings  de.lproj/Localizable.strings
-  python3 l10n_guard.py xcstrings Localizable.xcstrings
-  python3 l10n_guard.py xliff     messages.de.xlf
+  python3 l10n_guard.py html       source.html  translated.html
+  python3 l10n_guard.py json       en.json      de.json
+  python3 l10n_guard.py po         de.po
+  python3 l10n_guard.py md         README.md    README.de.md
+  python3 l10n_guard.py dir        site         site/de
+  python3 l10n_guard.py android    values/strings.xml  values-fr/strings.xml
+  python3 l10n_guard.py strings    en.lproj/Localizable.strings  de.lproj/Localizable.strings
+  python3 l10n_guard.py xcstrings  Localizable.xcstrings
+  python3 l10n_guard.py xliff      messages.de.xlf
+  python3 l10n_guard.py properties messages.properties  messages_fr.properties
+  python3 l10n_guard.py arb        app_en.arb   app_de.arb
 
 Exit code 0 = no errors, 1 = errors found, 2 = bad input.
 Made by MV2 of Munim, Inc. with AI agents. MIT licence.
@@ -29,7 +31,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -592,6 +594,105 @@ def check_xcstrings(data):
     return problems, stats
 
 
+# ---------------------------------------------------------- Java and Flutter
+
+_PROPS_ESCAPES = {"t": "\t", "n": "\n", "r": "\r", "f": "\f"}
+_PROPS_SPACE = " \t\f"
+
+
+def _props_unescape(s):
+    out, i = [], 0
+    while i < len(s):
+        if s[i] == "\\" and i + 1 < len(s):
+            nxt = s[i + 1]
+            if nxt == "u" and re.match(r"[0-9A-Fa-f]{4}$", s[i + 2:i + 6]):
+                out.append(chr(int(s[i + 2:i + 6], 16)))
+                i += 6
+                continue
+            out.append(_PROPS_ESCAPES.get(nxt, nxt))
+            i += 2
+        else:
+            out.append(s[i])
+            i += 1
+    return "".join(out)
+
+
+def _continues(line):
+    """A .properties line continues on the next one if it ends in an odd
+    number of backslashes."""
+    return (len(line) - len(line.rstrip("\\"))) % 2 == 1
+
+
+def parse_properties(text):
+    """Reads a Java .properties file (ResourceBundle, Spring messages) into
+    {key: value}: # and ! comments, key=value, key: value or key value,
+    backslash line continuations, \\uXXXX and the other escapes."""
+    entries = {}
+    lines = text.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i].lstrip(_PROPS_SPACE)
+        i += 1
+        if not line or line[0] in "#!":
+            continue
+        while _continues(line) and i < len(lines):
+            line = line[:-1] + lines[i].lstrip(_PROPS_SPACE)
+            i += 1
+        if _continues(line):
+            line = line[:-1]
+        j = 0
+        while j < len(line) and line[j] not in "=:" + _PROPS_SPACE:
+            j += 2 if line[j] == "\\" else 1
+        key = line[:j]
+        rest = line[j:].lstrip(_PROPS_SPACE)
+        if rest[:1] in ("=", ":"):
+            rest = rest[1:].lstrip(_PROPS_SPACE)
+        entries[_props_unescape(key)] = _props_unescape(rest)
+    return entries
+
+
+def _messageformat_quote(source, target):
+    """True if the translation of a MessageFormat string ({0}, {name}) has a
+    single apostrophe the source doesn't. MessageFormat reads ' as the start of
+    quoted text, so "L'utilisateur {0}" prints "Lutilisateur {0}"; '' is the
+    literal apostrophe."""
+    if not _BRACE_ARG_RE.search(source) or "'" in source.replace("''", ""):
+        return False
+    return "'" in target.replace("''", "")
+
+
+def check_properties(source_text, target_text):
+    """Compares a translated bundle (messages_fr.properties) with its source
+    (messages.properties)."""
+    src, tgt = parse_properties(source_text), parse_properties(target_text)
+    problems = check_catalog(src, tgt)
+    for key in sorted(set(src) & set(tgt)):
+        if _messageformat_quote(src[key], tgt[key]):
+            problems.append(issue(ERROR, "messageformat-apostrophe",
+                                  "a single ' starts quoted text in MessageFormat, so the "
+                                  "arguments after it print literally; write ''", key))
+    return problems
+
+
+def arb_messages(data):
+    """The messages of a Flutter .arb file: every key except @@locale-style
+    globals and @key metadata."""
+    if not isinstance(data, dict):
+        raise ValueError("not an ARB file: the top level is not an object")
+    return {k: v for k, v in data.items() if not k.startswith("@")}
+
+
+def check_arb(source, target):
+    """Compares a translated .arb (app_de.arb) with the template (app_en.arb),
+    both loaded from JSON. ICU plural and select branches may differ between
+    languages; arguments and markup may not."""
+    problems = check_catalog(arb_messages(source), arb_messages(target))
+    locale = target.get("@@locale")
+    if locale and locale == source.get("@@locale"):
+        problems.append(issue(WARNING, "locale", "@@locale is still %r" % locale))
+    return problems
+
+
 # ----------------------------------------------------------------- HTML / docs
 
 class _DocScan(HTMLParser):
@@ -817,13 +918,24 @@ def _read(path):
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
+def _read_properties(path):
+    """.properties files were ISO-8859-1 before Java 9. Most escape non-ASCII
+    as \\uXXXX, but if the bytes aren't UTF-8, read them as Latin-1."""
+    try:
+        return _read(path)
+    except UnicodeDecodeError:
+        with open(path, "rb") as f:
+            text = f.read().decode("latin-1")
+        return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def run(argv=None):
     parser = argparse.ArgumentParser(prog="l10n-guard", description=__doc__.split("\n\n")[0])
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--json", action="store_true", help="print issues as JSON")
     parser.add_argument("--strict", action="store_true", help="treat warnings as errors")
     sub = parser.add_subparsers(dest="kind", required=True)
-    for kind in ("html", "md", "json", "dir", "android", "strings"):
+    for kind in ("html", "md", "json", "dir", "android", "strings", "properties", "arb"):
         p = sub.add_parser(kind)
         p.add_argument("source")
         p.add_argument("target")
@@ -845,6 +957,11 @@ def run(argv=None):
         elif args.kind == "strings":
             problems = check_catalog(parse_strings(_read(args.source)),
                                      parse_strings(_read(args.target)))
+        elif args.kind == "properties":
+            problems = check_properties(_read_properties(args.source),
+                                        _read_properties(args.target))
+        elif args.kind == "arb":
+            problems = check_arb(json.loads(_read(args.source)), json.loads(_read(args.target)))
         elif args.kind == "xliff":
             problems, stats = check_xliff(_read(args.file))
         elif args.kind == "xcstrings":
