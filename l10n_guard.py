@@ -33,7 +33,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.5.2"
+__version__ = "0.6.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -163,17 +163,18 @@ _JAVA_KIND_NAMES = {"any": "general (%s)", "char": "a character (%c)",
 
 
 class JavaFormatError(ValueError):
-    """What java.util.Formatter would throw; .exception is its class name."""
+    """What java.util.Formatter would throw; .exception is its class name and
+    .pos the index of the % it stops at."""
 
-    def __init__(self, exception, detail):
+    def __init__(self, exception, detail, pos=None):
         super().__init__("%s (%s)" % (exception, detail))
         self.exception = exception
+        self.pos = pos
 
 
-def java_format(text):
-    """Parses text as String.format does. Returns [(argument number, kind)]
-    for each specifier that takes an argument (kind: any, char, int, float or
-    date); raises JavaFormatError where Java would throw."""
+def _java_specs(text):
+    """java_format, keeping each specifier's match: [(argument number, kind,
+    match)]."""
     specs = []
     ordinary = last = 0
     pos = 0
@@ -183,58 +184,68 @@ def java_format(text):
         bad = text.find("%", pos, end)
         if bad >= 0:
             after = text[bad + 1] if bad + 1 < end else "%"
-            raise JavaFormatError("UnknownFormatConversionException", "Conversion = '%s'" % after)
+            raise JavaFormatError("UnknownFormatConversionException", "Conversion = '%s'" % after,
+                                  bad)
         if not m:
             return specs
         pos = m.end()
+        at = m.start()
         index, flags, width, precision, dt, conv = m.groups()
         flags = flags or ""
         spec = m.group(0)
         if len(set(flags)) != len(flags):
-            raise JavaFormatError("DuplicateFormatFlagsException", spec)
+            raise JavaFormatError("DuplicateFormatFlagsException", spec, at)
         if dt:
             kind, rule = "date", "c"
             if conv not in _JAVA_DATE:
-                raise JavaFormatError("UnknownFormatConversionException", "Conversion = 't%s'" % conv)
+                raise JavaFormatError("UnknownFormatConversionException",
+                                      "Conversion = 't%s'" % conv, at)
         elif conv in "%n":
             kind, rule = None, conv
         elif conv.lower() in _JAVA_KINDS and (conv.islower() or conv in _JAVA_UPPER):
             kind, rule = _JAVA_KINDS[conv.lower()], conv.lower()
         else:
-            raise JavaFormatError("UnknownFormatConversionException", "Conversion = '%s'" % conv)
+            raise JavaFormatError("UnknownFormatConversionException", "Conversion = '%s'" % conv, at)
         if kind is None:
             if precision:
-                raise JavaFormatError("IllegalFormatPrecisionException", spec)
+                raise JavaFormatError("IllegalFormatPrecisionException", spec, at)
             if flags not in ("", "-") or (conv == "n" and (flags or width)):
-                raise JavaFormatError("IllegalFormatFlagsException", spec)
+                raise JavaFormatError("IllegalFormatFlagsException", spec, at)
             if "-" in flags and not width:
-                raise JavaFormatError("MissingFormatWidthException", spec)
+                raise JavaFormatError("MissingFormatWidthException", spec, at)
             continue
         if kind in ("int", "float"):
             if not width and ("-" in flags or "0" in flags):
-                raise JavaFormatError("MissingFormatWidthException", spec)
+                raise JavaFormatError("MissingFormatWidthException", spec, at)
             if ("+" in flags and " " in flags) or ("-" in flags and "0" in flags):
-                raise JavaFormatError("IllegalFormatFlagsException", spec)
+                raise JavaFormatError("IllegalFormatFlagsException", spec, at)
         if precision and kind in ("char", "int", "date"):
-            raise JavaFormatError("IllegalFormatPrecisionException", spec)
+            raise JavaFormatError("IllegalFormatPrecisionException", spec, at)
         for flag in flags:
             if flag in _JAVA_BAD_FLAGS[rule]:
-                raise JavaFormatError("FormatFlagsConversionMismatchException", spec)
+                raise JavaFormatError("FormatFlagsConversionMismatchException", spec, at)
         if "-" in flags and not width:
-            raise JavaFormatError("MissingFormatWidthException", spec)
+            raise JavaFormatError("MissingFormatWidthException", spec, at)
         if "<" in flags:
             if not last:
-                raise JavaFormatError("MissingFormatArgumentException", spec)
+                raise JavaFormatError("MissingFormatArgumentException", spec, at)
             number = last
         elif index:
             number = int(index[:-1])
             if number == 0:
-                raise JavaFormatError("IllegalFormatArgumentIndexException", spec)
+                raise JavaFormatError("IllegalFormatArgumentIndexException", spec, at)
             last = number
         else:
             ordinary += 1
             number = last = ordinary
-        specs.append((number, kind))
+        specs.append((number, kind, m))
+
+
+def java_format(text):
+    """Parses text as String.format does. Returns [(argument number, kind)]
+    for each specifier that takes an argument (kind: any, char, int, float or
+    date); raises JavaFormatError where Java would throw."""
+    return [(number, kind) for number, kind, _ in _java_specs(text)]
 
 
 def java_formatted(text):
@@ -267,11 +278,106 @@ def _java_clash(src_kind, tgt_kind):
     return "crash"
 
 
+def _lone_percent(text, pos):
+    """True if the % at pos reads as a percent sign in prose ("50 % de",
+    "50%ige", "25% adicional", "100%.") rather than as a placeholder."""
+    after = text[pos + 1:pos + 2]
+    if after == "%":
+        return False
+    if not after or after.isspace() or (pos and text[pos - 1].isdigit()):
+        return True
+    if after.isalpha():
+        return not after.isascii()
+    return not after.isdigit() and after not in "$<-#+0,("
+
+
+def _space_flagged(source, target, m, tgt):
+    """True if a "% d" in the translation is the source's "%d" written with a
+    space flag (a translator's typo that Java prints as " 5"), not a percent
+    sign in prose: no digit before it ("50 % de"), no Latin letter right
+    after it ("% de"), and no placeholder more than the source has."""
+    spec = m.group(0)
+    if spec.replace(" ", "") not in _arg_specs(source) or len(tgt) != len(_arg_specs(source)):
+        return False
+    before = target[:m.start()].rstrip(" ")
+    if before and before[-1].isdigit():
+        return False
+    after = target[m.end():m.end() + 1]
+    return not (after.isalpha() and after.isascii())
+
+
+def _context(text, pos):
+    """A few characters either side of pos, for messages."""
+    start, end = max(0, pos - 10), min(len(text), pos + 10)
+    return "%s%s%s" % ("..." if start else "", text[start:end], "..." if end < len(text) else "")
+
+
+_PERCENT_HINT = "; if the %% in \"%s\" is a percent sign, write it as %%%%"
+
+
+def _numbered(n, spec):
+    return "%%%d$%s" % (n, spec[1:])
+
+
+def _arg_specs(text):
+    """The specifiers in text that take an argument, as written."""
+    return [m.group(0) for m in _JAVA_SPEC_RE.finditer(text)
+            if m.group(5) or m.group(6) not in "%n"]
+
+
+def _java_order(source, kinds, passed, tgt, key):
+    """The translation's placeholders hold the source's types in another
+    order: unnumbered ones moved (Java fills them left to right), or numbered
+    ones whose types are swapped. Either way each value lands in the wrong
+    place, and String.format throws where text reaches a %d."""
+    if passed < 2 or sorted(kinds) != list(range(1, passed + 1)):
+        return []
+    want = [kinds[n] for n in range(1, passed + 1)]
+    unnumbered = not any(m.group(1) or "<" in (m.group(2) or "") for _, _, m in tgt)
+    if unnumbered and len(tgt) == passed:
+        got = [kind for _, kind, _ in tgt]
+        if got == want or sorted(got) != sorted(want):
+            return []
+        used, fixed = set(), []
+        for _, kind, m in tgt:
+            n = next(k for k in range(1, passed + 1) if kinds[k] == kind and k not in used)
+            used.add(n)
+            fixed.append(_numbered(n, m.group(0)))
+        return [issue(ERROR, "java-format", "unnumbered placeholders in a new order (%s in the "
+                      "source, %s here): String.format fills them left to right, so the values "
+                      "land in the wrong places, and it throws IllegalFormatConversionException "
+                      "where a value doesn't fit its new placeholder; number them to reorder: %s"
+                      % (" ... ".join(_arg_specs(source)), " ... ".join(m.group(0) for _, _, m in tgt),
+                         " ... ".join(fixed)), key)]
+    if all(m.group(1) for _, _, m in tgt):
+        got = {}
+        for n, kind, _ in tgt:
+            if got.get(n, "any") == "any":
+                got[n] = kind
+        if sorted(got) != sorted(kinds) or got == kinds:
+            return []
+        if sorted(got.values()) != sorted(kinds.values()):
+            return []
+        swapped = [n for n in sorted(kinds) if kinds[n] != got[n]]
+        return [issue(ERROR, "java-format", "argument numbers look swapped: %s in the source, %s "
+                      "here. Each value lands in the wrong place, and String.format throws "
+                      "IllegalFormatConversionException where a value doesn't fit; check which "
+                      "number is which"
+                      % (", ".join("%d is %s" % (n, _JAVA_KIND_NAMES[kinds[n]]) for n in swapped),
+                         ", ".join("%d is %s" % (n, _JAVA_KIND_NAMES[got[n]]) for n in swapped)),
+                      key)]
+    return []
+
+
 def check_java_format(source, target, key=None):
     """Checks a translation of a string the app formats with String.format.
     Java reads the whole translation before printing, so one stray % (as in
     "50 % de", "100 % sûr" or "50%ige"), an argument the source doesn't pass,
-    or a %d for the source's %f crashes the app in that language."""
+    or a %d for the source's %f crashes the app in that language. Placeholders
+    moved without numbers, swapped numbers and a %1$d broken up as 1%d are
+    errors too: they put the wrong value in each place even where nothing
+    throws. The source's %d written "% d" is only a warning: Java prints the
+    number with a leading space."""
     src = java_formatted(source)
     if not src:
         return []
@@ -281,11 +387,55 @@ def check_java_format(source, target, key=None):
         if kinds.get(n, "any") == "any":
             kinds[n] = kind
     try:
-        tgt = java_format(target)
+        tgt = _java_specs(target)
     except JavaFormatError as exc:
-        return [issue(ERROR, "java-format", "String.format would throw %s" % exc, key)]
+        message = "String.format would throw %s" % exc
+        if exc.pos is not None and _lone_percent(target, exc.pos):
+            message += _PERCENT_HINT % _context(target, exc.pos)
+        return [issue(ERROR, "java-format", message, key)]
     problems = []
-    for n, kind in tgt:
+    in_source = set(_arg_specs(source))
+    stray = set()
+    for i, (n, kind, m) in enumerate(tgt):
+        spec = m.group(0)
+        if spec in in_source or m.group(1):
+            continue
+        before = target[m.start() - 1] if m.start() else ""
+        if before.isdigit() and "%" + before + "$" in source and "%" + before + "$" not in target:
+            problems.append(issue(ERROR, "java-format", "\"%s%s\" looks like %s with the %% moved "
+                                  "after the %s: String.format prints the digit %s and fills %s "
+                                  "with argument %d"
+                                  % (before, spec, _numbered(int(before), spec), before, before,
+                                     spec, n), key))
+        elif " " in (m.group(2) or "") and _space_flagged(source, target, m, tgt):
+            problems.append(issue(WARNING, "java-format-flag", "\"%s\" in \"%s\" is the source's %s "
+                                  "with a space flag: String.format prints argument %d with a "
+                                  "leading space; write %s unless the space is wanted"
+                                  % (spec, _context(target, m.start()), spec.replace(" ", ""), n,
+                                     spec.replace(" ", "")), key))
+        elif " " in (m.group(2) or "") or before.isdigit():
+            stray.add(i)
+            clash = _java_clash(kinds.get(n, "any"), kind) if n <= passed else None
+            if n > passed:
+                effect = "throw MissingFormatArgumentException (the source passes %d)" % passed
+            elif clash == "crash":
+                effect = "throw IllegalFormatConversionException"
+            elif clash == "maybe":
+                effect = ("throw IllegalFormatConversionException unless the app passes a "
+                          "matching value")
+            else:
+                effect = "print argument %d there" % n
+            problems.append(issue(ERROR, "java-format", "String.format reads \"%s\" in \"%s\" as a "
+                                  "placeholder for argument %d and would %s; write %%%% for a "
+                                  "percent sign" % (spec, _context(target, m.start()), n, effect),
+                                  key))
+    if not stray:
+        order = _java_order(source, kinds, passed, tgt, key)
+        if order:
+            return problems + order
+    for i, (n, kind, _) in enumerate(tgt):
+        if i in stray:
+            continue
         if n > passed:
             problems.append(issue(ERROR, "java-format", "uses argument %d but the source passes %d, "
                                   "so String.format would throw MissingFormatArgumentException"

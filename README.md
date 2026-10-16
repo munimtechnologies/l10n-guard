@@ -73,6 +73,11 @@ exactly these.
   works too). When the folder is named like a language (`de`, `ja`, `pt-br`, `zh_Hans`), each
   page's `<html lang>` must match it.
 
+**Placeholders in a new order, swapped numbers, a broken `%1$d`, and percent signs read as placeholders** (0.6.0):
+Java fills unnumbered placeholders left to right, so a translation that moves them (`%s ... %d` to `%d ... %s`) puts each value in the wrong place, and String.format throws where text reaches `%d`. l10n-guard reports it as an error and suggests the numbered form (`%2$d ... %1$s`).
+Numbered placeholders whose types are swapped against the source (`%1$s ... %2$d` to `%1$d ... %2$s`) are reported the same way, and `1%d` where the source has `%1$d` as a moved `%`.
+A percent sign that Java reads as a placeholder without throwing (`50 % de` read as `% d`, `25% adicional` as `% a`) is now an error that says which argument it takes, and every stray-`%` error shows where it is and says to write `%%`. The source's own `%d` written `% d` (a space flag, with no number before it and no extra placeholder) is only a warning: Java prints the number with a leading space.
+
 Placeholder styles recognised: `{{name}}`, `{name}`, `{0}`, ICU `{count, plural, ...}` (by argument
 name, so translated plural branches are fine), `%s`, `%d`, `%.2f`, `%@`, `%lld`, `%(name)s`,
 `%1$s`, `${name}`. Markup: HTML/XML tags and react-i18next `<0>...</0>` slots. Prose like
@@ -120,7 +125,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.5.1
+- uses: munimtechnologies/l10n-guard@v0.6.0
   with:
     kind: json
     source: locales/en.json
@@ -131,17 +136,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.5.1
+- uses: munimtechnologies/l10n-guard@v0.6.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.5.1
+- uses: munimtechnologies/l10n-guard@v0.6.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.5.1
+- uses: munimtechnologies/l10n-guard@v0.6.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -150,7 +155,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.5.1
+- uses: munimtechnologies/l10n-guard@v0.6.0
   with:
     kind: dir
     source: docs

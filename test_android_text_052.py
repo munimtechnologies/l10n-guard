@@ -32,7 +32,7 @@ def errors(problems):
 
 class AndroidText052Test(unittest.TestCase):
     def test_version(self):
-        self.assertEqual(g.__version__, "0.5.2")
+        self.assertGreaterEqual(tuple(int(x) for x in g.__version__.split(".")), (0, 5, 2))
 
     def test_cdata_href_placeholder_is_kept(self):
         text = g._android_text(g.parse_android(SOURCE)["s"])
