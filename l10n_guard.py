@@ -33,7 +33,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 
 ERROR = "error"
 WARNING = "warning"
@@ -550,11 +550,18 @@ def _join_surrogates(text):
     return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 
 
+# parse_android writes a child element as a bare <name>...</name>. Markup that
+# is text in the XML (CDATA, &lt;a href="%2$s"&gt;) reaches the app as written.
+_ELEMENT_RE = re.compile(r"</?[A-Za-z][\w:.-]*/?>")
+
+
 def _android_text(raw):
-    """The string an app gets at runtime from parse_android's text: markup
-    dropped, double quotes removed, backslash escapes resolved and, outside
-    quotes, runs of whitespace collapsed to one space (as aapt2 does)."""
-    text = _TAG_RE.sub("", raw)
+    """The string an app gets at runtime from parse_android's text: element
+    markup dropped (markup that is text, from CDATA or &lt;, is kept with any
+    placeholder in it), double quotes removed, backslash escapes resolved
+    and, outside quotes, runs of whitespace collapsed to one space (as aapt2
+    does)."""
+    text = _ELEMENT_RE.sub("", raw)
     out, quoted, pending = [], False, False
     i = 0
     while i < len(text):
