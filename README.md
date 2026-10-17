@@ -63,6 +63,20 @@ exactly these.
   `<trans-unit>` or `<segment>` keeps its placeholders, and its inline elements (`<x>`, `<g>`,
   `<ph>`, `<pc>`, `<bpt>`...) by name and id. Units marked `translate="no"` are skipped; empty
   targets are counted as untranslated.
+- **Qt Linguist `.ts`** (0.7.0): `QString::arg()` fills the lowest-numbered place marker first,
+  whatever number the translator gave it, so a translation that renumbers the markers (`%1 of %2`
+  to `%2 の %3`) or drops one shows the wrong value or none. Each translation's markers (`%1`,
+  `%L2`) are checked by what `arg()` would show, with a hint when a missing marker was written
+  `٪1`, `% 1`, `1%`, or with digits such as `%১` that Qt 6.6 and later don't read as a marker.
+  In plural (numerus) messages Qt replaces only an ASCII `%n` or `%Ln` with the count, so a form
+  that writes it `٪n` (Arabic percent sign), `％n` (fullwidth) or `% n`, or writes `%1` where the
+  source has only `%n`, shows that text instead of the number: an error. A message where no form
+  shows the count is a warning. On 2026-10-17 Bitcoin Core's Arabic and Chinese translations had
+  such forms ([details](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/qt-numerus/FINDINGS.md));
+  the translation workbench [corpus](https://github.com/miguelaguiar01/corpus/pull/1102) found the
+  same kind of form in KeePassXC's Arabic and Finnish files first.
+  Unfinished translations get warnings, since lrelease ships them unless given `-nounfinished`;
+  obsolete ones are skipped.
 - **HTML and Markdown docs**: every code block must be byte-identical, inline code must match,
   external links (including `mailto:` and checkout links) must survive, and `<html lang>` must
   change. Numbers that vanish from the prose are reported as warnings. If the pages carry
@@ -96,6 +110,7 @@ python3 l10n_guard.py android    app/src/main/res/values/strings.xml app/src/mai
 python3 l10n_guard.py strings    en.lproj/Localizable.strings de.lproj/Localizable.strings
 python3 l10n_guard.py xcstrings  Localizable.xcstrings
 python3 l10n_guard.py xliff      src/locale/messages.de.xlf
+python3 l10n_guard.py qt         translations/app_ar.ts
 python3 l10n_guard.py html       secure-ollama.html de/secure-ollama.html
 python3 l10n_guard.py md         README.md README.ja.md
 python3 l10n_guard.py dir        site site/ja
@@ -125,28 +140,28 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.6.0
+- uses: munimtechnologies/l10n-guard@v0.7.0
   with:
     kind: json
     source: locales/en.json
     target: locales/de.json
 ```
 
-A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `xcstrings` take
+A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `xcstrings`, `qt` take
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.6.0
+- uses: munimtechnologies/l10n-guard@v0.7.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.6.0
+- uses: munimtechnologies/l10n-guard@v0.7.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.6.0
+- uses: munimtechnologies/l10n-guard@v0.7.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -155,7 +170,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.6.0
+- uses: munimtechnologies/l10n-guard@v0.7.0
   with:
     kind: dir
     source: docs

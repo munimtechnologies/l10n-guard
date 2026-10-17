@@ -19,7 +19,7 @@ def levels(problems):
 
 class Java060Test(unittest.TestCase):
     def test_version(self):
-        self.assertEqual(g.__version__, "0.6.0")
+        self.assertGreaterEqual(tuple(int(x) for x in g.__version__.split(".")), (0, 6, 0))
 
     def test_parse_keeps_matches(self):
         specs = g._java_specs("%s and %d, %<d")

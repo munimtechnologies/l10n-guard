@@ -33,7 +33,7 @@ runs:
         args=()
         if [ "$L10N_STRICT" = "true" ]; then args+=(--strict); fi
         case "$L10N_KIND" in
-          po|xliff|xcstrings)
+          po|xliff|xcstrings|qt)
             python3 "$L10N_SCRIPT" "${args[@]}" "$L10N_KIND" "$L10N_TARGET" ;;
           *)
             python3 "$L10N_SCRIPT" "${args[@]}" "$L10N_KIND" "$L10N_SOURCE" "$L10N_TARGET" ;;

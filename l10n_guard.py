@@ -16,6 +16,7 @@ anything.
   python3 l10n_guard.py strings    en.lproj/Localizable.strings  de.lproj/Localizable.strings
   python3 l10n_guard.py xcstrings  Localizable.xcstrings
   python3 l10n_guard.py xliff      messages.de.xlf
+  python3 l10n_guard.py qt         app_ar.ts
   python3 l10n_guard.py properties messages.properties  messages_fr.properties
   python3 l10n_guard.py arb        app_en.arb   app_de.arb
 
@@ -33,7 +34,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -1315,6 +1316,174 @@ def check_dir(source_dir, target_dir):
     return problems, stats
 
 
+# ----------------------------------------------------------------- Qt Linguist
+
+# A QString::arg() place marker: % then an optional L then one or two ASCII
+# digits (qtbase qstring.cpp). Each arg() call fills the lowest-numbered
+# marker left, so the i-th argument lands in the i-th smallest marker of the
+# translation, whatever number the translator gave it. Digits such as ١ or ১
+# stopped counting as markers in Qt 6.6.
+_QT_ARG_RE = re.compile(r"%L?([0-9]{1,2})")
+# The count of a plural (numerus) message. QCoreApplication::translate
+# replaces only an ASCII % followed by n or Ln (replacePercentN).
+_QT_COUNT_RE = re.compile(r"%L?n")
+_QT_PERCENTS = "٪％﹪"   # Arabic ٪, fullwidth ％, small ﹪
+_QT_FAKE_COUNT_RE = re.compile("(?:[%s]\\s*L?|%%\\s+L?)n(?![A-Za-z])" % _QT_PERCENTS)
+
+
+def parse_qt_ts(text):
+    """Reads a Qt Linguist .ts file into a list of dicts: context, source,
+    numerus, forms (the translation's text, one per plural form) and state
+    (finished, unfinished, untranslated or obsolete)."""
+    root = ET.fromstring(text)
+    if root.tag != "TS":
+        raise ValueError("not a Qt .ts file (root element <%s>)" % root.tag)
+    messages = []
+    for ctx in root.iter("context"):
+        name = ctx.findtext("name") or ""
+        for msg in ctx.iter("message"):
+            source, trans = msg.find("source"), msg.find("translation")
+            if source is None:
+                continue
+            numerus = msg.get("numerus") == "yes"
+            if trans is None:
+                holders = []
+            elif numerus:
+                holders = trans.findall("numerusform")
+            else:
+                holders = [trans]
+            forms = []
+            for holder in holders:
+                variants = holder.findall("lengthvariant")
+                forms.extend("".join(v.itertext()) for v in variants or [holder])
+            kind = trans.get("type", "") if trans is not None else ""
+            if kind in ("obsolete", "vanished"):
+                state = "obsolete"
+            elif not any(f.strip() for f in forms):
+                state = "untranslated"
+            elif kind == "unfinished":
+                state = "unfinished"
+            else:
+                state = "finished"
+            messages.append({"context": name, "source": "".join(source.itertext()),
+                             "numerus": numerus, "forms": forms, "state": state})
+    return messages
+
+
+def _qt_markers(text):
+    """Sorted distinct place-marker numbers QString::arg() sees in text."""
+    return sorted({int(n) for n in _QT_ARG_RE.findall(text)})
+
+
+def _qt_hints(source, target):
+    """What the translator may have written for each source marker the
+    translation lacks."""
+    tgt = _qt_markers(target)
+    out = []
+    for n in _qt_markers(source):
+        if n in tgt:
+            continue
+        d = str(n)
+        for pattern, what in ((r"[%s]\s*L?%s(?![0-9])" % (_QT_PERCENTS, d), "a percent sign Qt does not read"),
+                              (r"%%\s+L?%s(?![0-9])" % d, "a space after the %"),
+                              (r"(?<![0-9%%])%s%%" % d, "the % after the number")):
+            m = re.search(pattern, target)
+            if m:
+                out.append("'%s' looks like %%%s written with %s" % (m.group(0), d, what))
+                break
+        else:
+            for m in re.finditer(r"%L?(\d{1,2})", target):
+                if not m.group(1).isascii() and int(m.group(1)) == n:
+                    out.append("'%s' uses digits that Qt 6.6 and later do not read as a marker" % m.group(0))
+                    break
+    return out
+
+
+def _qt_arg_issues(source, target, key, level):
+    """QString::arg() markers of one translated text against its source."""
+    src = _qt_markers(source)
+    if not src:
+        return []
+    tgt = _qt_markers(target)
+    meant = {n: i + 1 for i, n in enumerate(src)}
+    shown = {n: (i + 1 if i < len(src) else None) for i, n in enumerate(tgt)}
+    wrong = []
+    for n in tgt:
+        if meant.get(n) == shown[n]:
+            continue
+        if shown[n] is None:
+            wrong.append("%%%d is left as text" % n)
+        else:
+            wrong.append("%%%d shows the value of the source's %%%d" % (n, src[shown[n] - 1]))
+    used = set(v for v in shown.values() if v)
+    missing = ["%%%d" % src[i] for i in range(len(src)) if i + 1 not in used]
+    hints = _qt_hints(source, target)
+    tail = "; " + "; ".join(hints) if hints else ""
+    problems = []
+    if wrong:
+        problems.append(issue(level, "qt-arg-order",
+                              "QString::arg() fills the lowest-numbered marker first, so %s%s"
+                              % ("; ".join(wrong), "" if missing else tail), key))
+    if missing:
+        problems.append(issue(level, "qt-arg-missing",
+                              "the value of the source's %s is never shown%s" % (", ".join(missing), tail), key))
+    return problems
+
+
+def _qt_count_issues(source, forms, key, level):
+    """The count (%n) of a plural message: a look-alike such as ٪n or ％n, or
+    a %1 where the source has only %n, is shown as written, and a message with
+    no %n in any form never shows the count."""
+    if not _QT_COUNT_RE.search(source):
+        return []
+    has_markers = bool(_qt_markers(source))
+    problems = []
+    for i, form in enumerate(forms, 1):
+        m = _QT_FAKE_COUNT_RE.search(form)
+        if m:
+            why = "Qt replaces only an ASCII %n or %Ln with the count"
+        elif not has_markers and not _QT_COUNT_RE.search(form):
+            m = re.search(r"%L?[1-9](?![0-9])", form)
+            why = "the source has no place marker for arg() to fill"
+        if m:
+            problems.append(issue(level, "qt-count", "form %d: '%s' is not %%n; %s, so '%s' is shown as written"
+                                  % (i, m.group(0), why, m.group(0)), key))
+    if not problems and not any(_QT_COUNT_RE.search(f) for f in forms if f.strip()):
+        problems.append(issue(WARNING, "qt-count-missing", "no plural form shows the count (%n)", key))
+    return problems
+
+
+def _qt_key(context, source, width=50):
+    text = " ".join(source.split())
+    if len(text) > width:
+        text = text[:width - 3] + "..."
+    return "%s: %s" % (context, text) if context else text
+
+
+def check_qt(text):
+    """Checks every translated message of a Qt Linguist .ts file: the
+    QString::arg() place markers (%1, %L2) of each translation against its
+    source, and the count (%n) of plural messages. Returns (issues, stats)."""
+    problems = []
+    stats = {"messages": 0, "finished": 0, "unfinished": 0, "untranslated": 0, "obsolete": 0}
+    for msg in parse_qt_ts(text):
+        stats["messages"] += 1
+        stats[msg["state"]] += 1
+        if msg["state"] not in ("finished", "unfinished"):
+            continue
+        # lrelease writes unfinished translations into the .qm file unless it
+        # is given -nounfinished, so they may ship; their problems are warnings.
+        level = ERROR if msg["state"] == "finished" else WARNING
+        key = _qt_key(msg["context"], msg["source"])
+        for i, form in enumerate(msg["forms"], 1):
+            if form.strip():
+                where = "%s (form %d)" % (key, i) if msg["numerus"] else key
+                problems.extend(_qt_arg_issues(msg["source"], form, where, level))
+        if msg["numerus"]:
+            problems.extend(_qt_count_issues(msg["source"], msg["forms"], key, level))
+    return problems, stats
+
+
 # ------------------------------------------------------------------------- CLI
 
 def _read(path):
@@ -1350,7 +1519,7 @@ def run(argv=None):
         p = sub.add_parser(kind)
         p.add_argument("source")
         p.add_argument("target")
-    for kind in ("po", "xliff", "xcstrings"):
+    for kind in ("po", "xliff", "xcstrings", "qt"):
         p = sub.add_parser(kind)
         p.add_argument("file")
     args = parser.parse_args(argv)
@@ -1377,6 +1546,8 @@ def run(argv=None):
             problems, stats = check_xliff(_read(args.file))
         elif args.kind == "xcstrings":
             problems, stats = check_xcstrings(json.loads(_read(args.file)))
+        elif args.kind == "qt":
+            problems, stats = check_qt(_read(args.file))
         else:
             problems, stats = check_po(_read(args.file))
     except (OSError, ValueError, ET.ParseError) as exc:
