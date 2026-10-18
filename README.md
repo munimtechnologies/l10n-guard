@@ -33,6 +33,17 @@ exactly these.
   key by key (nested keys as `size.string`), by Laravel's `:name` placeholders. Plural ranges
   (`{0}`, `[2,*]`) may differ between languages. Values that aren't plain strings (function
   calls, constants) are skipped.
+- **Rails locale files** (0.10.0): `config/locales/ja.yml` is compared with `config/locales/en.yml`
+  key by key, below the locale's root key (`en:`, `ja:`), by Ruby I18n's `%{name}` and `%<name>s`
+  placeholders. Plural keys (`one`, `few`, `other`) are checked per language, as in JSON catalogs,
+  and any form may add `%{count}`.
+- **Symfony translations** (0.10.0): `messages.ja.yaml` or `.xlf`/`.xliff` is compared with the
+  source language's file **by key**, the way Symfony's translator pairs them, so XLIFF files whose
+  `<source>` is the key (as in SonataAdminBundle) are checked too. Parameters are `%name%`, plus
+  `{{ name }}` and `%s`. In a plural message (`one|many`, with `{0}` or `]1,Inf]` intervals) each
+  form is checked against the source's last form.
+- **YAML** is read by a small built-in reader, so PyYAML isn't needed: nested mappings and lists,
+  plain, quoted and block (`|`, `>`) values. Anchors, aliases and tags are refused with an error.
 - **Android `strings.xml`**: `<string>`, `<plurals>` and `<string-array>`, with inline markup
   and `<xliff:g>` kept. Strings marked `translatable="false"` are skipped. An apostrophe that is
   neither written `\'` nor inside double quotes is an error, because aapt rejects it (`&apos;`
@@ -86,6 +97,13 @@ exactly these.
   lost: an error. A copy next to the real placeholder is a warning. On 2026-10-18 Akaunting,
   UNIT3D and Snipe-IT had such strings in Japanese or Chinese
   ([findings](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/lookalike-colon/LARAVEL.md)).
+- **Look-alike percent signs in Rails and Symfony files** (0.10.0, code `lookalike-percent`):
+  `％{count}` and `٪ {name}` in Rails, `％name％` and `٪ name٪` in Symfony. Ruby's I18n reads only
+  `%{` and `%<`, and Symfony replaces each parameter by its exact key, so the text is shown as
+  written and the value is lost: an error. On 2026-10-18 GOV.UK Publishing Components,
+  OpenStreetMap, SonataAdminBundle, Akeneo PIM and OpenDXP had such strings, all in Chinese,
+  Japanese or Arabic ([Rails](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/lookalike-percent/RAILS.md),
+  [Symfony](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/lookalike-percent/SYMFONY.md)).
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -130,7 +148,8 @@ A percent sign that Java reads as a placeholder without throwing (`50 % de` read
 
 Placeholder styles recognised: `{{name}}`, `{name}`, `{0}`, ICU `{count, plural, ...}` (by argument
 name, so translated plural branches are fine), `%s`, `%d`, `%.2f`, `%@`, `%lld`, `%(name)s`,
-`%1$s`, `${name}`, and Laravel `:name` in `laravel` files. Markup: HTML/XML tags and react-i18next `<0>...</0>` slots. Prose like
+`%1$s`, `${name}`, Laravel `:name` in `laravel` files, Rails `%{name}` and `%<name>s`
+in `rails` files, and Symfony `%name%` in `symfony` files. Markup: HTML/XML tags and react-i18next `<0>...</0>` slots. Prose like
 `50 % de remise` is not mistaken for `% d`, except in an Android string the app formats, where
 Java does read it that way. In plural forms for zero, one and two, a missing placeholder is only
 a warning, since "one file" often spells the number out.
@@ -144,6 +163,8 @@ python3 l10n_guard.py properties src/main/resources/messages.properties src/main
 python3 l10n_guard.py arb        lib/l10n/app_en.arb lib/l10n/app_ja.arb
 python3 l10n_guard.py resx       Properties/Resources.resx Properties/Resources.ja.resx
 python3 l10n_guard.py laravel    lang/en/validation.php lang/ja/validation.php
+python3 l10n_guard.py rails      config/locales/en.yml config/locales/ja.yml
+python3 l10n_guard.py symfony    translations/messages.en.yaml translations/messages.ja.yaml
 python3 l10n_guard.py android    app/src/main/res/values/strings.xml app/src/main/res/values-fr/strings.xml
 python3 l10n_guard.py strings    en.lproj/Localizable.strings de.lproj/Localizable.strings
 python3 l10n_guard.py xcstrings  Localizable.xcstrings
@@ -178,7 +199,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.9.0
+- uses: munimtechnologies/l10n-guard@v0.10.0
   with:
     kind: json
     source: locales/en.json
@@ -189,17 +210,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.9.0
+- uses: munimtechnologies/l10n-guard@v0.10.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.9.0
+- uses: munimtechnologies/l10n-guard@v0.10.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.9.0
+- uses: munimtechnologies/l10n-guard@v0.10.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -208,7 +229,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.9.0
+- uses: munimtechnologies/l10n-guard@v0.10.0
   with:
     kind: dir
     source: docs

@@ -21,6 +21,8 @@ anything.
   python3 l10n_guard.py arb        app_en.arb   app_de.arb
   python3 l10n_guard.py resx       Resources.resx  Resources.ja.resx
   python3 l10n_guard.py laravel    lang/en/validation.php  lang/ja/validation.php
+  python3 l10n_guard.py rails      config/locales/en.yml  config/locales/ja.yml
+  python3 l10n_guard.py symfony    translations/messages.en.yaml  translations/messages.ja.xlf
 
 Exit code 0 = no errors, 1 = errors found, 2 = bad input.
 Made by MV2 of Munim, Inc. with AI agents. Licensed under the Apache License,
@@ -36,7 +38,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -1383,7 +1385,8 @@ def parse_laravel(text):
             return flatten(value)
         end = text.find(";", i)
         if end < 0:
-            raise ValueError("no return statement in the PHP file")
+            raise ValueError("no return statement in the PHP file"
+                             + (" (it is only \"<?php\")" if text.strip() == "<?php" else ""))
         i = end + 1
 
 
@@ -1408,6 +1411,9 @@ def _laravel_pair(source, target, key):
     if not target.strip():
         return problems
     names, missing = _laravel_names(source), []
+    spelled = {}
+    for written in _LARAVEL_RE.findall(source):
+        spelled.setdefault(written.lower(), written)
     for name in sorted(names):
         seen = _lookalike_colon(name, target)
         if re.search(":%s(?![A-Za-z0-9_])" % re.escape(name), target, re.I):
@@ -1415,14 +1421,14 @@ def _laravel_pair(source, target, key):
                 problems.append(issue(WARNING, "lookalike-colon",
                                       "\"%s\" is written with %s, which Laravel doesn't replace, "
                                       "so it is shown as written; the value itself appears at the "
-                                      "ASCII :%s" % (seen, _LOOKALIKE_COLONS[seen[0]], name), key))
+                                      "ASCII :%s" % (seen, _LOOKALIKE_COLONS[seen[0]], spelled[name]), key))
         elif seen:
             problems.append(issue(ERROR, "lookalike-colon",
                                   ":%s is written \"%s\" with %s, which Laravel doesn't replace: "
                                   "the text is shown as written and the value is lost"
-                                  % (name, seen, _LOOKALIKE_COLONS[seen[0]]), key))
+                                  % (spelled[name], seen, _LOOKALIKE_COLONS[seen[0]]), key))
         else:
-            missing.append(":" + name)
+            missing.append(":" + spelled[name])
     if missing:
         problems.append(issue(ERROR, "placeholder-missing",
                               "placeholder(s) missing: %s" % ", ".join(missing), key))
@@ -1445,6 +1451,552 @@ def check_laravel(source_text, target_text):
                 problems.append(issue(WARNING, "missing-key", "key missing from translation", key))
         elif isinstance(src[key], str) and isinstance(tgt[key], str):
             problems.extend(_laravel_pair(src[key], tgt[key], key))
+    for key in sorted(set(tgt) - set(src)):
+        problems.append(issue(WARNING, "extra-key", "key not in source", key))
+    return problems
+
+
+
+# ------------------------------------------------------------------------ YAML
+
+# A reader for YAML as translation files write it (Rails config/locales,
+# Symfony translations), so that no PyYAML is needed (0.10.0): nested
+# mappings and lists, plain, quoted and block (| >) scalars, comments, and
+# {} or one-line [a, b] flow values. Anchors, aliases and tags are refused.
+_YAML_KEY_RE = re.compile(r"([^\s#'\"\[\]{}&*!|>%@`?-].*?|-\S.*?)[ \t]*:(?:[ \t]+|$)")
+_YAML_COLON_RE = re.compile(r"[ \t]*:(?:[ \t]+|$)")
+_YAML_BLOCK_RE = re.compile(r"([|>])([1-9]?)([+-]?)([1-9]?)[ \t]*(?:#.*)?$")
+_YAML_DOC_RE = re.compile(r"---(?:[ \t]+#.*)?[ \t]*$")
+_YAML_ESCAPES = {"0": "\0", "a": "\a", "b": "\b", "t": "\t", "\t": "\t", "n": "\n", "v": "\v",
+                 "f": "\f", "r": "\r", "e": "\x1b", " ": " ", '"': '"', "/": "/", "\\": "\\",
+                 "N": "\x85", "_": "\xa0", "L": " ", "P": " "}
+_YAML_HEX = {"x": 2, "u": 4, "U": 8}
+_YAML_NULLS = ("", "~", "null", "Null", "NULL")
+
+
+def _yaml_indent(line):
+    return len(line) - len(line.lstrip(" "))
+
+
+def _yaml_blank(line):
+    text = line.strip()
+    return not text or text.startswith("#")
+
+
+def _yaml_dash(text):
+    return text == "-" or text.startswith(("- ", "-\t"))
+
+
+def _yaml_uncomment(text):
+    """A plain scalar without its trailing comment ("value # note")."""
+    return re.split(r"[ \t]+#", text, maxsplit=1)[0].strip()
+
+
+def _yaml_scalar(text):
+    """A plain scalar's value: null and ~ are None, everything else is text."""
+    return None if text in _YAML_NULLS else text
+
+
+def _yaml_quoted(lines, li, start):
+    """The quoted scalar at lines[li][start] (' or "), folded over as many
+    lines as it takes, and the line index and column just after it."""
+    line, quote = lines[li], lines[li][start]
+    out, i = [], start + 1
+    while True:
+        while i < len(line):
+            c = line[i]
+            if c == quote and quote == "'" and line.startswith("''", i):
+                out.append("'")
+                i += 2
+            elif c == quote:
+                return "".join(out), li, i + 1
+            elif quote == '"' and c == "\\" and i + 1 < len(line):
+                nxt = line[i + 1]
+                if nxt in _YAML_HEX:
+                    digits = line[i + 2:i + 2 + _YAML_HEX[nxt]]
+                    if not re.fullmatch(r"[0-9A-Fa-f]{%d}" % _YAML_HEX[nxt], digits):
+                        raise ValueError("line %d: bad \\%s escape" % (li + 1, nxt))
+                    out.append(chr(int(digits, 16)))
+                    i += 2 + len(digits)
+                elif nxt in _YAML_ESCAPES:
+                    out.append(_YAML_ESCAPES[nxt])
+                    i += 2
+                else:
+                    raise ValueError("line %d: unknown escape \\%s" % (li + 1, nxt))
+            elif quote == '"' and c == "\\":
+                break
+            else:
+                out.append(c)
+                i += 1
+        joined = i < len(line)   # the line ended with an escaped line break
+        if not joined:
+            while out and out[-1] in " \t":
+                out.pop()
+        li, breaks = li + 1, 0
+        while li < len(lines) and not lines[li].strip():
+            li, breaks = li + 1, breaks + 1
+        if li >= len(lines):
+            raise ValueError("unterminated quoted value")
+        out.append("\n" * breaks if breaks or joined else " ")
+        line = lines[li]
+        i = len(line) - len(line.lstrip(" \t"))
+
+
+def _yaml_fold(lines):
+    """Folds the lines of a > block: a line break between two lines of text
+    becomes a space; blank lines and more-indented lines keep their breaks."""
+    out, breaks, started, before = [], 0, False, False
+    for line in lines:
+        if not line:
+            breaks += 1
+            continue
+        more = line[0] in " \t"
+        if not started:
+            out.append("\n" * breaks)
+        elif more or before:
+            out.append("\n" * (breaks + 1))
+        else:
+            out.append("\n" * breaks if breaks else " ")
+        out.append(line)
+        started, breaks, before = True, 0, more
+    return "".join(out)
+
+
+def _yaml_flow(text, li):
+    """An empty {} or [], or a one-line list of scalars ([a, 'b c'])."""
+    if re.fullmatch(r"\{\s*\}", text):
+        return {}
+    m = re.fullmatch(r"\[(.*)\]", text)
+    if not m:
+        raise ValueError("line %d: YAML flow mappings are not read" % (li + 1))
+    body, items, k = m.group(1), [], 0
+    while True:
+        while k < len(body) and body[k] in " \t":
+            k += 1
+        if k >= len(body):
+            return items
+        if body[k] in "'\"":
+            item, _, k = _yaml_quoted([body], 0, k)
+        else:
+            end = body.find(",", k)
+            end = len(body) if end < 0 else end
+            item = _yaml_scalar(body[k:end].strip())
+            if item is not None and re.search(r"[\[\]{}]|:\s", item):
+                raise ValueError("line %d: nested YAML flow collections are not read" % (li + 1))
+            k = end
+        items.append(item)
+        while k < len(body) and body[k] in " \t":
+            k += 1
+        if k < len(body):
+            if body[k] != ",":
+                raise ValueError("line %d: unreadable YAML flow list" % (li + 1))
+            k += 1
+
+
+class _YamlReader:
+    """Reads block YAML line by line; pos is the next line not yet read."""
+
+    def __init__(self, text):
+        self.lines = []
+        for line in text.split("\n"):
+            if line.rstrip() == "...":
+                break
+            if line.startswith("%") or _YAML_DOC_RE.match(line):
+                line = ""
+            self.lines.append(line)
+        self.pos = 0
+
+    def significant(self):
+        """The index of the next line that isn't blank or a comment."""
+        i = self.pos
+        while i < len(self.lines) and _yaml_blank(self.lines[i]):
+            i += 1
+        if i < len(self.lines) and self.lines[i][_yaml_indent(self.lines[i])] == "\t":
+            raise ValueError("line %d: a tab in the indentation" % (i + 1))
+        return i
+
+    def key(self, text):
+        """(key, length of "key: ") when text starts a mapping entry, else None."""
+        if text[:1] in ("'", '"'):
+            try:
+                key, _, end = _yaml_quoted([text], 0, 0)
+            except ValueError:
+                return None
+            m = _YAML_COLON_RE.match(text, end)
+            return (key, m.end()) if m else None
+        m = _YAML_KEY_RE.match(text)
+        return (m.group(1), m.end()) if m else None
+
+    def node(self, indent):
+        """The node on the next line, if it is indented at least indent."""
+        i = self.pos = self.significant()
+        if i >= len(self.lines):
+            return None
+        col = _yaml_indent(self.lines[i])
+        if col < indent:
+            return None
+        text = self.lines[i][col:]
+        if _yaml_dash(text):
+            return self.sequence(col)
+        if self.key(text) is not None:
+            return self.mapping(col)
+        return self.value(i, col, indent - 1, False)
+
+    def mapping(self, col):
+        out = {}
+        while True:
+            i = self.pos = self.significant()
+            if i >= len(self.lines) or _yaml_indent(self.lines[i]) < col:
+                return out
+            line = self.lines[i]
+            if _yaml_indent(line) > col:
+                raise ValueError("line %d: unexpected indentation" % (i + 1))
+            found = self.key(line[col:])
+            if found is None:
+                raise ValueError("line %d: expected a key: %s" % (i + 1, line.strip()[:40]))
+            out[found[0]] = self.value(i, col + found[1], col, True)
+
+    def sequence(self, col):
+        out = []
+        while True:
+            i = self.pos = self.significant()
+            if i >= len(self.lines) or _yaml_indent(self.lines[i]) < col:
+                return out
+            line = self.lines[i]
+            if _yaml_indent(line) > col:
+                raise ValueError("line %d: unexpected indentation" % (i + 1))
+            text = line[col:]
+            if not _yaml_dash(text):
+                return out
+            start = col + len(text) - len(text[1:].lstrip(" \t"))
+            rest = line[start:]
+            if rest and (_yaml_dash(rest) or self.key(rest) is not None):
+                # "- key: value" or "- - item": a node that starts at this column
+                self.lines[i] = " " * start + rest
+                out.append(self.node(start))
+            else:
+                out.append(self.value(i, start, col, False))
+
+    def value(self, i, start, parent, in_map):
+        """The value at column start of line i, after "key: " or "- ";
+        parent is the column of its key or dash. A value on the lines below
+        is indented more, except a list under a key."""
+        text = self.lines[i][start:].rstrip()
+        if not text or text.startswith("#"):
+            self.pos = i + 1
+            j = self.significant()
+            if j < len(self.lines):
+                col = _yaml_indent(self.lines[j])
+                if col > parent or (in_map and col == parent and _yaml_dash(self.lines[j][col:])):
+                    return self.node(col)
+            return None
+        if text[0] in "&*!":
+            raise ValueError("line %d: YAML anchors, aliases and tags are not read" % (i + 1))
+        if text[0] in "|>":
+            return self.block(i, text, parent)
+        if text[0] in "'\"":
+            value, j, end = _yaml_quoted(self.lines, i, start)
+            rest = self.lines[j][end:].strip()
+            if rest and not rest.startswith("#"):
+                raise ValueError("line %d: text after a quoted value: %s" % (j + 1, rest[:40]))
+            self.pos = j + 1
+            return value
+        if text[0] in "[{":
+            self.pos = i + 1
+            return _yaml_flow(_yaml_uncomment(text), i)
+        return self.plain(i, start, parent)
+
+    def plain(self, i, start, parent):
+        """A plain scalar, folded over the more-indented lines after it."""
+        parts, j, breaks = [_yaml_uncomment(self.lines[i][start:])], i + 1, 0
+        while j < len(self.lines):
+            line = self.lines[j]
+            if not line.strip():
+                j, breaks = j + 1, breaks + 1
+                continue
+            if _yaml_indent(line) <= parent or line.strip().startswith("#"):
+                break
+            parts.append("\n" * breaks if breaks else " ")
+            parts.append(_yaml_uncomment(line))
+            j, breaks = j + 1, 0
+        self.pos = j
+        return _yaml_scalar("".join(parts))
+
+    def block(self, i, header, parent):
+        """A literal (|) or folded (>) block scalar."""
+        m = _YAML_BLOCK_RE.match(header)
+        if not m:
+            raise ValueError("line %d: unreadable block scalar header %s" % (i + 1, header[:20]))
+        j, body = i + 1, []
+        while j < len(self.lines) and (not self.lines[j].strip()
+                                       or _yaml_indent(self.lines[j]) > parent):
+            body.append(self.lines[j])
+            j += 1
+        self.pos = j
+        width = m.group(2) or m.group(4)
+        filled = [line for line in body if line.strip()]
+        width = parent + int(width) if width else (_yaml_indent(filled[0]) if filled else 0)
+        lines = [line[width:] if line.strip() else "" for line in body]
+        trailing = 0
+        while lines and not lines[-1]:
+            lines.pop()
+            trailing += 1
+        if not lines:
+            return ""
+        text = "\n".join(lines) if m.group(1) == "|" else _yaml_fold(lines)
+        if m.group(3) == "-":
+            return text
+        return text + "\n" * (1 + trailing if m.group(3) == "+" else 1)
+
+
+def parse_yaml(text):
+    """Reads YAML as translation files write it into dicts, lists and
+    strings (null and ~ are None; numbers and booleans stay text)."""
+    reader = _YamlReader(text)
+    value = reader.node(0)
+    i = reader.significant()
+    if i < len(reader.lines):
+        raise ValueError("line %d: unexpected text: %s" % (i + 1, reader.lines[i].strip()[:40]))
+    return {} if value is None else value
+
+
+# ------------------------------------------------------------------ Rails YAML
+
+# Ruby's I18n fills %{name} and %<name>s and nothing else
+# (DEFAULT_INTERPOLATION_PATTERNS; %% is a literal %). A ％{name} or
+# ٪ {name} typed with a look-alike percent sign, or %｛name｝ with fullwidth
+# braces, is shown as written and the value is lost (0.10.0).
+_RAILS_RE = re.compile(r"%\{([\w|]+)\}|%<(\w+)>[^\d<>]*?\d*\.?\d*[bBdiouxXeEfgGcps]")
+_RAILS_LOCALE_RE = re.compile(r"^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$")
+_RAILS_PLURAL_RE = re.compile(r"\.(zero|one|two|few|many|other)$")
+
+
+def _rails_names(text):
+    """The names of the %{name} and %<name>s placeholders in a Rails string."""
+    return {a or b for a, b in _RAILS_RE.findall(text.replace("%%", ""))}
+
+
+def _lookalike_rails(name, target):
+    """(how target writes %{name} with a look-alike, what it is, code) for
+    "％{count}", "٪ {name}", "%｛name｝" or "％<count>d", or None."""
+    marks = "%" + "".join(_LOOKALIKE_PERCENTS)
+    word = re.escape(name)
+    for m in re.finditer("[%s] ?(?:[{｛] ?%s ?[}｝]|<%s>)" % (marks, word, word), target):
+        seen = m.group(0)
+        if seen[0] in _LOOKALIKE_PERCENTS:
+            return seen, _LOOKALIKE_PERCENTS[seen[0]], "lookalike-percent"
+        brace = next((c for c in seen if c in _LOOKALIKE_BRACES), None)
+        if brace:
+            return seen, _LOOKALIKE_BRACES[brace], "lookalike-brace"
+    return None
+
+
+def _rails_pair(source, target, key, quantity=None):
+    """check_pair for one Rails string, by its %{name} placeholders. In a
+    plural form for zero, one or two a missing placeholder is a warning, and
+    any form may add %{count}, which I18n always passes."""
+    problems = [p for p in check_pair(source, target, key)
+                if p["code"] in ("empty", "tags", "untranslated")]
+    if not target.strip():
+        return problems
+    names, found, missing = _rails_names(source), _rails_names(target), []
+    for name in sorted(names):
+        seen = _lookalike_rails(name, target)
+        if name in found:
+            if seen:
+                problems.append(issue(WARNING, seen[2],
+                                      "\"%s\" is written with %s, which Ruby's I18n doesn't read, "
+                                      "so it is shown as written; the value itself appears at the "
+                                      "ASCII %%{%s}" % (seen[0], seen[1], name), key))
+        elif seen:
+            problems.append(issue(ERROR, seen[2],
+                                  "%%{%s} is written \"%s\" with %s, which Ruby's I18n doesn't "
+                                  "read: the text is shown as written and the value is lost"
+                                  % (name, seen[0], seen[1]), key))
+        else:
+            missing.append("%%{%s}" % name)
+    if missing:
+        problems.append(issue(WARNING if quantity in ("zero", "one", "two") else ERROR,
+                              "placeholder-missing",
+                              "placeholder(s) missing: %s" % ", ".join(missing), key))
+    extra = sorted(found - names - ({"count"} if quantity else set()))
+    if extra:
+        problems.append(issue(WARNING, "placeholder-extra",
+                              "placeholder(s) not in source; Ruby's I18n raises "
+                              "MissingInterpolationArgument unless the app passes them: %s"
+                              % ", ".join("%%{%s}" % name for name in extra), key))
+    return problems
+
+
+def _rails_root(data):
+    """A Rails locale file's messages, under its locale key (en:, ja:)."""
+    if not isinstance(data, dict):
+        raise ValueError("the YAML file is not a mapping")
+    if len(data) == 1:
+        root, inner = next(iter(data.items()))
+        if isinstance(inner, dict) and _RAILS_LOCALE_RE.match(str(root)):
+            return inner
+    return data
+
+
+def check_rails(source_text, target_text):
+    """Compares a translated Rails locale file (config/locales/ja.yml) with
+    the source one (config/locales/en.yml). Plural keys (one, few, other)
+    are checked per language: a missing one is fine when the translation
+    has other forms, and a few or many the source lacks is checked against
+    its other."""
+    src = flatten(_rails_root(parse_yaml(source_text)))
+    tgt = flatten(_rails_root(parse_yaml(target_text)))
+    plural_bases = {_RAILS_PLURAL_RE.sub("", k) for k in tgt if _RAILS_PLURAL_RE.search(k)}
+    problems = []
+    for key in sorted(src):
+        form = _RAILS_PLURAL_RE.search(key)
+        if key in tgt:
+            if isinstance(src[key], str) and isinstance(tgt[key], str):
+                problems.extend(_rails_pair(src[key], tgt[key], key, form and form.group(1)))
+        elif isinstance(src[key], str) and src[key].strip() and not (
+                form and _RAILS_PLURAL_RE.sub("", key) in plural_bases):
+            problems.append(issue(WARNING, "missing-key", "key missing from translation", key))
+    for key in sorted(set(tgt) - set(src)):
+        form = _RAILS_PLURAL_RE.search(key)
+        other = src.get(_RAILS_PLURAL_RE.sub("", key) + ".other") if form else None
+        if isinstance(other, str):
+            if isinstance(tgt[key], str):
+                problems.extend(_rails_pair(other, tgt[key], key, form.group(1)))
+        else:
+            problems.append(issue(WARNING, "extra-key", "key not in source", key))
+    return problems
+
+
+# --------------------------------------------------------------------- Symfony
+
+# Symfony's translator fills parameters with strtr($message, $parameters),
+# so a '%name%' the caller passes must appear exactly: ％name％ or ٪ name٪ is
+# shown as written and the value is lost (0.10.0). Messages are paired by
+# key, as the translator pairs them; Sonata's XLIFF files have the key, not
+# the English, as <source>, so source and target in one file can't show it.
+_SYMFONY_PARAM_RE = re.compile(r"(?<!%)%([A-Za-z_][\w.-]*)%(?!%)")
+_SYMFONY_INTERVAL_RE = re.compile(
+    r"^\s*(?:\{\s*-?\d+(?:\.\d+)?(?:\s*,\s*-?\d+(?:\.\d+)?)*\s*\}"
+    r"|[\[\]]\s*(?:-Inf|-?\d+(?:\.\d+)?)\s*,\s*(?:\+?Inf|-?\d+(?:\.\d+)?)\s*[\[\]])\s*")
+
+
+def parse_symfony(text, name):
+    """Reads a Symfony translation file (messages.ja.yaml, .xlf, .xliff) into
+    {key: message}, the way the translator loads it: YAML keys are joined
+    with dots; an XLIFF unit's key is its resname (1.2) or name (2.0), else
+    its <source>, and its message is the <target>, else the <source>."""
+    lower = name.lower()
+    if lower.endswith((".yml", ".yaml")):
+        data = parse_yaml(text)
+        if not isinstance(data, dict):
+            raise ValueError("the YAML file is not a mapping")
+        return flatten(data)
+    if not lower.endswith((".xlf", ".xliff", ".xml")):
+        raise ValueError("a Symfony translation file is .yaml, .yml, .xlf or .xliff: %s" % name)
+    messages = {}
+    for el in ET.fromstring(text).iter():
+        part = _local(el.tag)
+        if part == "trans-unit":
+            holders = [(el.get("resname"), el)]
+        elif part == "unit":
+            holders = [(el.get("name"), s) for s in el if _local(s.tag) == "segment"]
+        else:
+            continue
+        for key, holder in holders:
+            source = next((c for c in holder if _local(c.tag) == "source"), None)
+            target = next((c for c in holder if _local(c.tag) == "target"), None)
+            if source is None:
+                continue
+            words = "".join(source.itertext())
+            messages[key or words] = words if target is None else "".join(target.itertext())
+    return messages
+
+
+def _symfony_forms(text):
+    """A message's plural forms (one|many), without their intervals ({0},
+    [2,Inf[), which may differ between languages."""
+    if "|" not in text:
+        return [text]
+    return [_SYMFONY_INTERVAL_RE.sub("", form) for form in text.split("|")]
+
+
+def _lookalike_symfony(name, target):
+    """How target writes %name% with a look-alike percent sign ("％name％",
+    "٪ name٪", "%name％"), and what that sign is, or None."""
+    marks = "%" + "".join(_LOOKALIKE_PERCENTS)
+    for m in re.finditer("([%s]) ?%s ?([%s])" % (marks, re.escape(name), marks), target):
+        odd = [c for c in m.groups() if c in _LOOKALIKE_PERCENTS]
+        if odd:
+            return m.group(0), _LOOKALIKE_PERCENTS[odd[0]]
+    return None
+
+
+def _symfony_form(source, target, key, last):
+    """check_pair for one form of a Symfony message, with its %name%
+    parameters. Outside the last form a missing parameter is a warning,
+    since "one file" often spells the number out."""
+    names = set(_SYMFONY_PARAM_RE.findall(source))
+    found = set(_SYMFONY_PARAM_RE.findall(target))
+    problems = check_pair(_SYMFONY_PARAM_RE.sub(r"\1", source),
+                          _SYMFONY_PARAM_RE.sub(r"\1", target), key)
+    missing = []
+    for name in sorted(names):
+        seen = _lookalike_symfony(name, target)
+        if name in found:
+            if seen:
+                problems.append(issue(WARNING, "lookalike-percent",
+                                      "\"%s\" is written with %s, which Symfony doesn't replace, "
+                                      "so it is shown as written; the value itself appears at the "
+                                      "ASCII %%%s%%" % (seen[0], seen[1], name), key))
+        elif seen:
+            problems.append(issue(ERROR, "lookalike-percent",
+                                  "%%%s%% is written \"%s\" with %s, which Symfony doesn't "
+                                  "replace: the text is shown as written and the value is lost"
+                                  % (name, seen[0], seen[1]), key))
+        else:
+            missing.append("%" + name + "%")
+    if missing:
+        problems.append(issue(ERROR, "placeholder-missing",
+                              "placeholder(s) missing: %s" % ", ".join(missing), key))
+    extra = sorted(found - names)
+    if extra:
+        problems.append(issue(WARNING, "placeholder-extra",
+                              "placeholder(s) not in source, shown as written unless the app "
+                              "passes them: %s" % ", ".join("%" + name + "%" for name in extra),
+                              key))
+    if not last:
+        for p in problems:
+            if p["code"] == "placeholder-missing":
+                p["level"] = WARNING
+    return problems
+
+
+def _symfony_pair(source, target, key):
+    """check_pair for one Symfony message. In a plural message (one|many)
+    each form of the translation is checked against the source's last form."""
+    if not target.strip():
+        return check_pair(source, target, key)
+    other, forms = _symfony_forms(source)[-1], _symfony_forms(target)
+    problems = []
+    for n, form in enumerate(forms):
+        problems.extend(_symfony_form(other, form, key, n == len(forms) - 1))
+    return problems
+
+
+def check_symfony(source_text, target_text, source_name=".yaml", target_name=".yaml"):
+    """Compares a translated Symfony file (translations/messages.ja.yaml or
+    .xlf) with the source language's file, message by message, by key. The
+    names (paths) give each file's format."""
+    src = parse_symfony(source_text, source_name)
+    tgt = parse_symfony(target_text, target_name)
+    problems = []
+    for key in sorted(src):
+        if key not in tgt:
+            if isinstance(src[key], str) and src[key].strip():
+                problems.append(issue(WARNING, "missing-key", "key missing from translation", key))
+        elif isinstance(src[key], str) and isinstance(tgt[key], str):
+            problems.extend(_symfony_pair(src[key], tgt[key], key))
     for key in sorted(set(tgt) - set(src)):
         problems.append(issue(WARNING, "extra-key", "key not in source", key))
     return problems
@@ -1869,7 +2421,7 @@ def run(argv=None):
     parser.add_argument("--strict", action="store_true", help="treat warnings as errors")
     sub = parser.add_subparsers(dest="kind", required=True)
     for kind in ("html", "md", "json", "dir", "android", "strings", "properties", "arb",
-                 "resx", "laravel"):
+                 "resx", "laravel", "rails", "symfony"):
         p = sub.add_parser(kind)
         p.add_argument("source")
         p.add_argument("target")
@@ -1898,6 +2450,11 @@ def run(argv=None):
             problems = check_resx(_read(args.source), _read(args.target))
         elif args.kind == "laravel":
             problems = check_laravel(_read(args.source), _read(args.target))
+        elif args.kind == "rails":
+            problems = check_rails(_read(args.source), _read(args.target))
+        elif args.kind == "symfony":
+            problems = check_symfony(_read(args.source), _read(args.target),
+                                     args.source, args.target)
         elif args.kind == "arb":
             problems = check_arb(json.loads(_read(args.source)), json.loads(_read(args.target)))
         elif args.kind == "xliff":
