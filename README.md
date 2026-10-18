@@ -26,6 +26,9 @@ exactly these.
   metadata is skipped. ICU plural and select branches may differ between languages (Japanese
   needs only `other`), but every argument and tag must survive. `@@locale` left as the
   template's locale is a warning.
+- **.NET `.resx`** (0.8.0): the text `<data>` entries of a translated `Resources.ja.resx`
+  are compared with the neutral `Resources.resx` as a catalog. Typed entries (images, files:
+  `type=`, `mimetype=`) and WinForms designer entries (`>>button1.Name`) are skipped.
 - **Android `strings.xml`**: `<string>`, `<plurals>` and `<string-array>`, with inline markup
   and `<xliff:g>` kept. Strings marked `translatable="false"` are skipped. An apostrophe that is
   neither written `\'` nor inside double quotes is an error, because aapt rejects it (`&apos;`
@@ -64,6 +67,15 @@ exactly these.
   2026-10-17 seven Android apps had such strings, and Android Lint, read in source, misses them in
   `<plurals>` and in mixed strings
   ([findings](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/lookalike-percent/FINDINGS.md)).
+- **Look-alike braces** (0.8.0, code `lookalike-brace`): a `{0}`, `{name}` or `{{name}}` written
+  with the fullwidth braces `｛` and `｝` (U+FF5B, U+FF5D), which Chinese and Japanese input
+  methods type, often with fullwidth digits (`｛０｝`). .NET `string.Format`, Java `MessageFormat`,
+  ICU, ngx-translate and Python's `str.format` read only ASCII braces, so the text is shown as
+  written and the value is lost: an error, in every format. With one brace still ASCII (`｛0}`),
+  .NET and Python throw instead. A fullwidth copy next to the real placeholder is a warning, and
+  fullwidth braces the source has too are left alone. On 2026-10-18 nine open-source projects
+  had such strings, among them about 200 messages in ONLYOFFICE's Japanese audit trail
+  ([findings](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/lookalike-brace/BRACES.md)).
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -120,6 +132,7 @@ python3 l10n_guard.py json       locales/en.json locales/de.json
 python3 l10n_guard.py po         locale/pl/LC_MESSAGES/messages.po
 python3 l10n_guard.py properties src/main/resources/messages.properties src/main/resources/messages_fr.properties
 python3 l10n_guard.py arb        lib/l10n/app_en.arb lib/l10n/app_ja.arb
+python3 l10n_guard.py resx       Properties/Resources.resx Properties/Resources.ja.resx
 python3 l10n_guard.py android    app/src/main/res/values/strings.xml app/src/main/res/values-fr/strings.xml
 python3 l10n_guard.py strings    en.lproj/Localizable.strings de.lproj/Localizable.strings
 python3 l10n_guard.py xcstrings  Localizable.xcstrings
@@ -154,7 +167,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.7.2
+- uses: munimtechnologies/l10n-guard@v0.8.0
   with:
     kind: json
     source: locales/en.json
@@ -165,17 +178,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.7.2
+- uses: munimtechnologies/l10n-guard@v0.8.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.7.2
+- uses: munimtechnologies/l10n-guard@v0.8.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.7.2
+- uses: munimtechnologies/l10n-guard@v0.8.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -184,7 +197,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.7.2
+- uses: munimtechnologies/l10n-guard@v0.8.0
   with:
     kind: dir
     source: docs

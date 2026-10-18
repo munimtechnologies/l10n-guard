@@ -6,10 +6,10 @@ branding:
   color: blue
 inputs:
   kind:
-    description: "html, md, json, properties, arb, android, strings, dir (a whole locale folder against its source folder), or a single-file format: po, xliff, xcstrings"
+    description: "html, md, json, properties, arb, android, strings, resx, dir (a whole locale folder against its source folder), or a single-file format: po, xliff, xcstrings, qt"
     required: true
   source:
-    description: "Source-language file or folder (not used for po, xliff, xcstrings)"
+    description: "Source-language file or folder (not used for po, xliff, xcstrings, qt)"
     required: false
     default: ""
   target:

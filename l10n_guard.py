@@ -19,6 +19,7 @@ anything.
   python3 l10n_guard.py qt         app_ar.ts
   python3 l10n_guard.py properties messages.properties  messages_fr.properties
   python3 l10n_guard.py arb        app_en.arb   app_de.arb
+  python3 l10n_guard.py resx       Resources.resx  Resources.ja.resx
 
 Exit code 0 = no errors, 1 = errors found, 2 = bad input.
 Made by MV2 of Munim, Inc. with AI agents. Licensed under the Apache License,
@@ -34,7 +35,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.7.2"
+__version__ = "0.8.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -115,25 +116,74 @@ def _lookalike(name, target):
     return m.group(0) if m else None
 
 
+# Braces that look like { and } but that no formatter reads (0.8.0): .NET
+# string.Format, Java MessageFormat, ICU and Python's str.format show "｛0｝"
+# as written. Chinese and Japanese input methods type them, often with
+# fullwidth digits inside ("｛０｝").
+_LOOKALIKE_BRACES = {"｛": "the fullwidth left brace ｛ (U+FF5B)",
+                     "｝": "the fullwidth right brace ｝ (U+FF5D)"}
+_BRACE_NAME_RE = re.compile(r"(\{+)\s*([^{}\s]+)\s*\}+$")
+
+
+def _fullwidth_class(c):
+    """A regex for c or its fullwidth form (０ for 0, ｎ for n)."""
+    if "!" <= c <= "~":
+        return "[%s%s]" % (re.escape(c), chr(ord(c) + 0xFEE0))
+    return re.escape(c)
+
+
+def _lookalike_brace(name, target):
+    """How target writes the brace placeholder name ({0}, {name}, {{name}})
+    with a fullwidth brace ("｛0｝", "｛０｝", "｛0}", "｛｛link｝｝", ICU
+    "｛count，"), or None."""
+    m = _BRACE_NAME_RE.match(name)
+    if not m:
+        return None
+    depth = len(m.group(1))
+    inner = "".join(_fullwidth_class(c) for c in m.group(2))
+    pattern = r"[{｛]{%d}\s*%s\s*(?:[}｝]{%d}|[,，])" % (depth, inner, depth)
+    for found in re.finditer(pattern, target, re.I):
+        if any(brace in found.group(0) for brace in _LOOKALIKE_BRACES):
+            return found.group(0)
+    return None
+
+
+def _seen_lookalike(name, source, target):
+    """(how target writes name with a look-alike, what the look-alike is,
+    code), or None. Fullwidth braces the source has too are text."""
+    seen = _lookalike(name, target)
+    if seen:
+        return seen, _LOOKALIKE_PERCENTS[seen[0]], "lookalike-percent"
+    seen = _lookalike_brace(name, target)
+    if seen and seen not in source:
+        brace = next(c for c in seen if c in _LOOKALIKE_BRACES)
+        return seen, _LOOKALIKE_BRACES[brace], "lookalike-brace"
+    return None
+
+
 def _lookalike_issues(source, target, missing, key):
-    """Placeholders written with a look-alike percent sign. The missing ones
-    explained this way are taken out of missing (a list, changed in place)."""
+    """Placeholders written with a look-alike percent sign or fullwidth
+    braces. The missing ones explained this way are taken out of missing (a
+    list, changed in place)."""
     problems = []
-    lost = [(name, _lookalike(name, target)) for name in missing]
-    lost = [(name, seen) for name, seen in lost if seen]
-    for name, seen in lost:
+    lost = [(name, _seen_lookalike(name, source, target)) for name in missing]
+    lost = [(name, found) for name, found in lost if found]
+    for name, (seen, what, code) in lost:
         missing.remove(name)
-        problems.append(issue(ERROR, "lookalike-percent",
-                              "%s is written \"%s\" with %s, which no formatter reads: the text is "
-                              "shown as written and the value is lost"
-                              % (name, seen, _LOOKALIKE_PERCENTS[seen[0]]), key))
+        message = ("%s is written \"%s\" with %s, which no formatter reads: the text is shown as "
+                   "written and the value is lost" % (name, seen, what))
+        if code == "lookalike-brace" and ("{" in seen or "}" in seen):
+            message += ("; with one brace still ASCII, .NET string.Format and Python str.format "
+                        "throw on it instead")
+        problems.append(issue(ERROR, code, message, key))
     for name in sorted(set(placeholders(source)) - {name for name, _ in lost}):
-        seen = _lookalike(name, target)
-        if seen:
-            problems.append(issue(WARNING, "lookalike-percent",
+        found = _seen_lookalike(name, source, target)
+        if found:
+            seen, what, code = found
+            problems.append(issue(WARNING, code,
                                   "\"%s\" is written with %s, which no formatter reads, so it is "
                                   "shown as written; the value itself appears at the ASCII %s"
-                                  % (seen, _LOOKALIKE_PERCENTS[seen[0]], name), key))
+                                  % (seen, what, name), key))
     return problems
 
 
@@ -1174,6 +1224,30 @@ def check_arb(source, target):
     return problems
 
 
+# --------------------------------------------------------------------- .NET resx
+
+def parse_resx(text):
+    """Reads a .NET .resx file (Resources.ja.resx) into {name: value}: the
+    <data> entries that hold text. Typed entries (images, files: type= or
+    mimetype=) and WinForms designer entries (>>button1.Name) are skipped."""
+    out = {}
+    for el in ET.fromstring(text):
+        name = el.get("name")
+        if (_local(el.tag) != "data" or not name or name.startswith(">>")
+                or el.get("type") or el.get("mimetype")):
+            continue
+        value = next((child for child in el if _local(child.tag) == "value"), None)
+        out[name] = "" if value is None else value.text or ""
+    return out
+
+
+def check_resx(source_text, target_text):
+    """Compares a translated .resx (Resources.ja.resx) with the neutral one
+    (Resources.resx). string.Format reads {0} only with ASCII braces, so a
+    fullwidth ｛0｝ loses the value (lookalike-brace)."""
+    return check_catalog(parse_resx(source_text), parse_resx(target_text))
+
+
 # ----------------------------------------------------------------- HTML / docs
 
 class _DocScan(HTMLParser):
@@ -1592,7 +1666,8 @@ def run(argv=None):
     parser.add_argument("--json", action="store_true", help="print issues as JSON")
     parser.add_argument("--strict", action="store_true", help="treat warnings as errors")
     sub = parser.add_subparsers(dest="kind", required=True)
-    for kind in ("html", "md", "json", "dir", "android", "strings", "properties", "arb"):
+    for kind in ("html", "md", "json", "dir", "android", "strings", "properties", "arb",
+                 "resx"):
         p = sub.add_parser(kind)
         p.add_argument("source")
         p.add_argument("target")
@@ -1617,6 +1692,8 @@ def run(argv=None):
         elif args.kind == "properties":
             problems = check_properties(_read_properties(args.source),
                                         _read_properties(args.target))
+        elif args.kind == "resx":
+            problems = check_resx(_read(args.source), _read(args.target))
         elif args.kind == "arb":
             problems = check_arb(json.loads(_read(args.source)), json.loads(_read(args.target)))
         elif args.kind == "xliff":
