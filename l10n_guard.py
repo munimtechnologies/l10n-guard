@@ -34,7 +34,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 ERROR = "error"
 WARNING = "warning"
@@ -98,6 +98,45 @@ def tags(text):
     return found
 
 
+# Percent signs that look like % but that no formatter reads: printf,
+# String.format and Python print "٪s" or "％1$d" as written, and the value
+# meant for it is never shown.
+_LOOKALIKE_PERCENTS = {"٪": "the Arabic percent sign ٪ (U+066A)",
+                       "％": "the fullwidth percent sign ％ (U+FF05)",
+                       "﹪": "the small percent sign ﹪ (U+FE6A)"}
+
+
+def _lookalike(name, target):
+    """How target writes the %-placeholder name with a look-alike percent
+    sign ("٪s", "％1$d", "٪ 1$S"), or None."""
+    if not name.startswith("%"):
+        return None
+    m = re.search("[%s] ?%s" % ("".join(_LOOKALIKE_PERCENTS), re.escape(name[1:])), target, re.I)
+    return m.group(0) if m else None
+
+
+def _lookalike_issues(source, target, missing, key):
+    """Placeholders written with a look-alike percent sign. The missing ones
+    explained this way are taken out of missing (a list, changed in place)."""
+    problems = []
+    lost = [(name, _lookalike(name, target)) for name in missing]
+    lost = [(name, seen) for name, seen in lost if seen]
+    for name, seen in lost:
+        missing.remove(name)
+        problems.append(issue(ERROR, "lookalike-percent",
+                              "%s is written \"%s\" with %s, which no formatter reads: the text is "
+                              "shown as written and the value is lost"
+                              % (name, seen, _LOOKALIKE_PERCENTS[seen[0]]), key))
+    for name in sorted(set(placeholders(source)) - {name for name, _ in lost}):
+        seen = _lookalike(name, target)
+        if seen:
+            problems.append(issue(WARNING, "lookalike-percent",
+                                  "\"%s\" is written with %s, which no formatter reads, so it is "
+                                  "shown as written; the value itself appears at the ASCII %s"
+                                  % (seen, _LOOKALIKE_PERCENTS[seen[0]], name), key))
+    return problems
+
+
 def _diff(source, target):
     missing = source - target
     extra = target - source
@@ -112,6 +151,7 @@ def check_pair(source, target, key=None):
             problems.append(issue(WARNING, "empty", "translation is empty", key))
         return problems
     missing, extra = _diff(placeholders(source), placeholders(target))
+    problems.extend(_lookalike_issues(source, target, missing, key))
     if missing:
         problems.append(issue(ERROR, "placeholder-missing",
                               "placeholder(s) missing: %s" % ", ".join(missing), key))
@@ -1407,7 +1447,7 @@ def _qt_arg_issues(source, target, key, level):
     tgt = _qt_markers(target)
     meant = {n: i + 1 for i, n in enumerate(src)}
     shown = {n: (i + 1 if i < len(src) else None) for i, n in enumerate(tgt)}
-    wrong = []
+    wrong, renumbered = [], True
     for n in tgt:
         if meant.get(n) == shown[n]:
             continue
@@ -1415,12 +1455,20 @@ def _qt_arg_issues(source, target, key, level):
             wrong.append("%%%d is left as text" % n)
         else:
             wrong.append("%%%d shows the value of the source's %%%d" % (n, src[shown[n] - 1]))
+        # A number the source lacks that still gets the value its place calls
+        # for ("to %1" written "nach %2") only renumbers the marker.
+        renumbered = renumbered and n not in meant and shown[n] is not None
     used = set(v for v in shown.values() if v)
     missing = ["%%%d" % src[i] for i in range(len(src)) if i + 1 not in used]
     hints = _qt_hints(source, target)
     tail = "; " + "; ".join(hints) if hints else ""
     problems = []
-    if wrong:
+    if wrong and renumbered and not missing:
+        problems.append(issue(WARNING, "qt-arg-renumbered",
+                              "%s, so each value still lands where the translator put it; number "
+                              "the marker as the source does (Qt Linguist's place-marker check "
+                              "flags it)%s" % ("; ".join(wrong), tail), key))
+    elif wrong:
         problems.append(issue(level, "qt-arg-order",
                               "QString::arg() fills the lowest-numbered marker first, so %s%s"
                               % ("; ".join(wrong), "" if missing else tail), key))

@@ -55,6 +55,15 @@ exactly these.
   `one` form may use `%2$d из %3$d` when the English `one` is just `File from %1$s` but `other`
   is `%2$d of %3$d files from %1$s`; and a stray `%` in a `one` form is caught even when the
   English `one` has no placeholder at all.
+- **Look-alike percent signs** (0.7.1, code `lookalike-percent`): a placeholder written with the
+  Arabic percent sign `٪` (U+066A), the fullwidth `％` (U+FF05) or the small `﹪` (U+FE6A), as in
+  `٪s`, `％1$d` or `٪D`, looks right, but no formatter reads it: Android's `String.format`, printf
+  and Python show it as written, and the value is lost. That is an error in every format, plural
+  `one` forms included (where a missing placeholder is otherwise only a warning), and the message
+  names the character. A look-alike next to the real placeholder (`％s ... %s`) is a warning. On
+  2026-10-17 seven Android apps had such strings, and Android Lint, read in source, misses them in
+  `<plurals>` and in mixed strings
+  ([findings](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/lookalike-percent/FINDINGS.md)).
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -77,6 +86,11 @@ exactly these.
   same kind of form in KeePassXC's Arabic and Finnish files first.
   Unfinished translations get warnings, since lrelease ships them unless given `-nounfinished`;
   obsolete ones are skipped.
+  A translation that only renumbers a marker to a number the source lacks (`to %1` written
+  `nach %2`, `('%2')` written `('%22')`), so that every value still lands where the translator put
+  it, is a warning (`qt-arg-renumbered`, 0.7.1), not an error. In a census of 39 open-source Qt
+  projects, 11 of the 130 translations first counted as "value in the wrong place" were such
+  renumberings ([results](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/qt-args/RESULTS.md)).
 - **HTML and Markdown docs**: every code block must be byte-identical, inline code must match,
   external links (including `mailto:` and checkout links) must survive, and `<html lang>` must
   change. Numbers that vanish from the prose are reported as warnings. If the pages carry
@@ -140,7 +154,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.7.0
+- uses: munimtechnologies/l10n-guard@v0.7.1
   with:
     kind: json
     source: locales/en.json
@@ -151,17 +165,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.7.0
+- uses: munimtechnologies/l10n-guard@v0.7.1
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.7.0
+- uses: munimtechnologies/l10n-guard@v0.7.1
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.7.0
+- uses: munimtechnologies/l10n-guard@v0.7.1
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -170,7 +184,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.7.0
+- uses: munimtechnologies/l10n-guard@v0.7.1
   with:
     kind: dir
     source: docs

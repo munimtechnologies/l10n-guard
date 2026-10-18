@@ -67,7 +67,7 @@ class Qt070Test(unittest.TestCase):
                 '<lengthvariant>%2</lengthvariant></translation></message></context></TS>')
         self.assertEqual(g.parse_qt_ts(text)[0]["forms"], ["%1 Dateien", "%2"])
         problems, _ = g.check_qt(text)
-        self.assertEqual(codes(problems), [("qt-arg-order", g.ERROR)])
+        self.assertEqual(codes(problems), [("qt-arg-renumbered", g.WARNING)])
 
     def test_not_ts(self):
         with self.assertRaises(ValueError):
