@@ -154,7 +154,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.7.1
+- uses: munimtechnologies/l10n-guard@v0.7.2
   with:
     kind: json
     source: locales/en.json
@@ -165,17 +165,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.7.1
+- uses: munimtechnologies/l10n-guard@v0.7.2
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.7.1
+- uses: munimtechnologies/l10n-guard@v0.7.2
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.7.1
+- uses: munimtechnologies/l10n-guard@v0.7.2
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -184,7 +184,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.7.1
+- uses: munimtechnologies/l10n-guard@v0.7.2
   with:
     kind: dir
     source: docs

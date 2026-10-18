@@ -34,7 +34,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.7.1"
+__version__ = "0.7.2"
 
 ERROR = "error"
 WARNING = "warning"
@@ -693,6 +693,31 @@ def _inner_xml(el):
     return "".join(parts)
 
 
+def _runtime_xml(el):
+    """An element's content as the app gets it: text kept, child elements'
+    tags dropped (their content and tails kept)."""
+    parts = [el.text or ""]
+    for child in el:
+        parts.append(_runtime_xml(child))
+        parts.append(child.tail or "")
+    return "".join(parts)
+
+
+class _AndroidString(str):
+    """parse_android's text for one string, plus .runtime from the XML tree.
+    In the text, <b> from an element and <b> written &lt;b&gt; look alike;
+    in .runtime only the second is there."""
+
+    def __new__(cls, text, runtime=None):
+        self = super().__new__(cls, text)
+        self.runtime = text if runtime is None else runtime
+        return self
+
+
+def _android_string(el):
+    return _AndroidString(_inner_xml(el), _runtime_xml(el))
+
+
 _QUANTITY_KEY_RE = re.compile(r"^(.*)\[(zero|one|two|few|many|other)\]$")
 _ARRAY_KEY_RE = re.compile(r"\[\d+\]$")
 _QUANTITIES = ("other", "many", "few", "two", "one", "zero")
@@ -711,15 +736,15 @@ def parse_android(text):
         if not name or el.get("translatable") == "false":
             continue
         if kind == "string":
-            out[name] = _inner_xml(el)
+            out[name] = _android_string(el)
         elif kind == "plurals":
             for item in el:
                 if _local(item.tag) == "item" and item.get("quantity"):
-                    out["%s[%s]" % (name, item.get("quantity"))] = _inner_xml(item)
+                    out["%s[%s]" % (name, item.get("quantity"))] = _android_string(item)
         elif kind == "string-array":
             items = [item for item in el if _local(item.tag) == "item"]
             for i, item in enumerate(items):
-                out["%s[%d]" % (name, i)] = _inner_xml(item)
+                out["%s[%d]" % (name, i)] = _android_string(item)
     return out
 
 
@@ -741,18 +766,22 @@ def _join_surrogates(text):
     return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 
 
-# parse_android writes a child element as a bare <name>...</name>. Markup that
-# is text in the XML (CDATA, &lt;a href="%2$s"&gt;) reaches the app as written.
+# parse_android writes a child element as a bare <name>...</name>, which looks
+# just like markup that is text in the XML (CDATA, &lt;a href="%2$s"&gt;,
+# &lt;/a&gt;) and reaches the app as written. Its strings carry .runtime, read
+# from the tree (0.7.2); _ELEMENT_RE is only for plain strings passed in.
 _ELEMENT_RE = re.compile(r"</?[A-Za-z][\w:.-]*/?>")
 
 
 def _android_text(raw):
     """The string an app gets at runtime from parse_android's text: element
-    markup dropped (markup that is text, from CDATA or &lt;, is kept with any
-    placeholder in it), double quotes removed, backslash escapes resolved
+    markup dropped (markup that is text, from CDATA or &lt;, is kept whole,
+    closing tags too), double quotes removed, backslash escapes resolved
     and, outside quotes, runs of whitespace collapsed to one space (as aapt2
     does)."""
-    text = _ELEMENT_RE.sub("", raw)
+    text = getattr(raw, "runtime", None)
+    if text is None:
+        text = _ELEMENT_RE.sub("", raw)
     out, quoted, pending = [], False, False
     i = 0
     while i < len(text):
