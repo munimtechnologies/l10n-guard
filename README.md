@@ -29,6 +29,10 @@ exactly these.
 - **.NET `.resx`** (0.8.0): the text `<data>` entries of a translated `Resources.ja.resx`
   are compared with the neutral `Resources.resx` as a catalog. Typed entries (images, files:
   `type=`, `mimetype=`) and WinForms designer entries (`>>button1.Name`) are skipped.
+- **Laravel lang files** (0.9.0): `lang/ja/validation.php` is compared with `lang/en/validation.php`
+  key by key (nested keys as `size.string`), by Laravel's `:name` placeholders. Plural ranges
+  (`{0}`, `[2,*]`) may differ between languages. Values that aren't plain strings (function
+  calls, constants) are skipped.
 - **Android `strings.xml`**: `<string>`, `<plurals>` and `<string-array>`, with inline markup
   and `<xliff:g>` kept. Strings marked `translatable="false"` are skipped. An apostrophe that is
   neither written `\'` nor inside double quotes is an error, because aapt rejects it (`&apos;`
@@ -76,6 +80,12 @@ exactly these.
   fullwidth braces the source has too are left alone. On 2026-10-18 nine open-source projects
   had such strings, among them about 200 messages in ONLYOFFICE's Japanese audit trail
   ([findings](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/lookalike-brace/BRACES.md)).
+- **Look-alike colons** (0.9.0, code `lookalike-colon`): a Laravel `:attribute` written with the
+  fullwidth colon `：` (U+FF1A), as in `The：attributeフィールドは必須です。`. Laravel searches for
+  the ASCII colon only, so the text is shown as written and the field name, user or time is
+  lost: an error. A copy next to the real placeholder is a warning. On 2026-10-18 Akaunting,
+  UNIT3D and Snipe-IT had such strings in Japanese or Chinese
+  ([findings](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/lookalike-colon/LARAVEL.md)).
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -120,7 +130,7 @@ A percent sign that Java reads as a placeholder without throwing (`50 % de` read
 
 Placeholder styles recognised: `{{name}}`, `{name}`, `{0}`, ICU `{count, plural, ...}` (by argument
 name, so translated plural branches are fine), `%s`, `%d`, `%.2f`, `%@`, `%lld`, `%(name)s`,
-`%1$s`, `${name}`. Markup: HTML/XML tags and react-i18next `<0>...</0>` slots. Prose like
+`%1$s`, `${name}`, and Laravel `:name` in `laravel` files. Markup: HTML/XML tags and react-i18next `<0>...</0>` slots. Prose like
 `50 % de remise` is not mistaken for `% d`, except in an Android string the app formats, where
 Java does read it that way. In plural forms for zero, one and two, a missing placeholder is only
 a warning, since "one file" often spells the number out.
@@ -133,6 +143,7 @@ python3 l10n_guard.py po         locale/pl/LC_MESSAGES/messages.po
 python3 l10n_guard.py properties src/main/resources/messages.properties src/main/resources/messages_fr.properties
 python3 l10n_guard.py arb        lib/l10n/app_en.arb lib/l10n/app_ja.arb
 python3 l10n_guard.py resx       Properties/Resources.resx Properties/Resources.ja.resx
+python3 l10n_guard.py laravel    lang/en/validation.php lang/ja/validation.php
 python3 l10n_guard.py android    app/src/main/res/values/strings.xml app/src/main/res/values-fr/strings.xml
 python3 l10n_guard.py strings    en.lproj/Localizable.strings de.lproj/Localizable.strings
 python3 l10n_guard.py xcstrings  Localizable.xcstrings
@@ -167,7 +178,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.8.0
+- uses: munimtechnologies/l10n-guard@v0.9.0
   with:
     kind: json
     source: locales/en.json
@@ -178,17 +189,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.8.0
+- uses: munimtechnologies/l10n-guard@v0.9.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.8.0
+- uses: munimtechnologies/l10n-guard@v0.9.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.8.0
+- uses: munimtechnologies/l10n-guard@v0.9.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -197,7 +208,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.8.0
+- uses: munimtechnologies/l10n-guard@v0.9.0
   with:
     kind: dir
     source: docs

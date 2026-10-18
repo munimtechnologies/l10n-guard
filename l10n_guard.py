@@ -20,6 +20,7 @@ anything.
   python3 l10n_guard.py properties messages.properties  messages_fr.properties
   python3 l10n_guard.py arb        app_en.arb   app_de.arb
   python3 l10n_guard.py resx       Resources.resx  Resources.ja.resx
+  python3 l10n_guard.py laravel    lang/en/validation.php  lang/ja/validation.php
 
 Exit code 0 = no errors, 1 = errors found, 2 = bad input.
 Made by MV2 of Munim, Inc. with AI agents. Licensed under the Apache License,
@@ -35,7 +36,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -1248,6 +1249,207 @@ def check_resx(source_text, target_text):
     return check_catalog(parse_resx(source_text), parse_resx(target_text))
 
 
+# ------------------------------------------------------------- Laravel lang
+
+# Laravel fills :name placeholders (and :Name, :NAME) by searching for the
+# ASCII colon, in Translator::makeReplacements and the validator's
+# replaceAttributePlaceholder. A ：name typed with the fullwidth colon, as
+# Chinese and Japanese input methods do, is shown as written (0.9.0).
+_LARAVEL_RE = re.compile(r"(?<![A-Za-z0-9_:]):([A-Za-z][A-Za-z0-9_]*)")
+_LOOKALIKE_COLONS = {"：": "the fullwidth colon ： (U+FF1A)",
+                     "﹕": "the small colon ﹕ (U+FE55)",
+                     "︓": "the vertical colon ︓ (U+FE13)"}
+_PHP_SKIP_RE = re.compile(r"(?:\s+|//[^\n]*|#(?!\[)[^\n]*|/\*.*?\*/)*", re.S)
+_PHP_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "v": "\v", "f": "\f", "e": "\x1b",
+                "\\": "\\", "$": "$", '"': '"'}
+_PHP_NUMBER_RE = re.compile(r"-?\d+")
+_PHP_ARRAY_RE = re.compile(r"array\s*\(", re.I)
+_PHP_RETURN_RE = re.compile(r"return\b")
+
+
+def _php_skip(text, i):
+    return _PHP_SKIP_RE.match(text, i).end()
+
+
+def _php_string(text, i):
+    """The PHP string literal at text[i] (' or "), and the index after it.
+    Variables in double quotes are kept as written."""
+    quote, out, i = text[i], [], i + 1
+    while i < len(text):
+        c = text[i]
+        if c == quote:
+            return "".join(out), i + 1
+        if c == "\\" and i + 1 < len(text):
+            nxt = text[i + 1]
+            if nxt in (quote, "\\") or (quote == '"' and nxt in _PHP_ESCAPES):
+                out.append(_PHP_ESCAPES[nxt] if quote == '"' else nxt)
+                i += 2
+                continue
+        out.append(c)
+        i += 1
+    raise ValueError("unterminated PHP string")
+
+
+def _php_skip_expr(text, i):
+    """Skips an expression the reader doesn't evaluate (a function call, a
+    constant) up to the , ] or ) that ends it."""
+    depth = 0
+    while i < len(text):
+        c = text[i]
+        if c in "'\"":
+            i = _php_string(text, i)[1]
+            continue
+        if c in "([":
+            depth += 1
+        elif c in ")]":
+            if depth == 0:
+                return i
+            depth -= 1
+        elif c in ",;" and depth == 0:
+            return i
+        i += 1
+    raise ValueError("unexpected end of the PHP file")
+
+
+def _php_value(text, i):
+    """The PHP value at text[i] and the index after it: a string (joined
+    across . concatenation), a whole number (as a string), or an array (a
+    dict). Anything else is None."""
+    i = _php_skip(text, i)
+    if text[i:i + 1] in ("'", '"'):
+        parts = []
+        while True:
+            part, i = _php_string(text, i)
+            parts.append(part)
+            j = _php_skip(text, i)
+            if text[j:j + 1] != ".":
+                return "".join(parts), i
+            j = _php_skip(text, j + 1)
+            if text[j:j + 1] not in ("'", '"'):
+                return None, _php_skip_expr(text, j)
+            i = j
+    if text.startswith("[", i):
+        return _php_array(text, i + 1, "]")
+    m = _PHP_ARRAY_RE.match(text, i)
+    if m:
+        return _php_array(text, m.end(), ")")
+    m = _PHP_NUMBER_RE.match(text, i)
+    if m and not re.match(r"[\w.]", text[m.end():m.end() + 1]):
+        return m.group(0), m.end()
+    return None, _php_skip_expr(text, i)
+
+
+def _php_array(text, i, close):
+    """The entries of a PHP array whose opening bracket ends at i, as
+    {key: value}, and the index after the closing bracket."""
+    out, auto = {}, 0
+    while True:
+        i = _php_skip(text, i)
+        if i >= len(text):
+            raise ValueError("unclosed PHP array")
+        if text.startswith(close, i):
+            return out, i + 1
+        first, i = _php_value(text, i)
+        i = _php_skip(text, i)
+        if text.startswith("=>", i):
+            key = first
+            value, i = _php_value(text, i + 2)
+            if isinstance(key, str) and _PHP_NUMBER_RE.fullmatch(key):
+                auto = max(auto, int(key) + 1)
+        else:
+            key, value, auto = str(auto), first, auto + 1
+        if isinstance(key, str):
+            out[key] = value
+        i = _php_skip(text, i)
+        if text.startswith(",", i):
+            i += 1
+        elif not text.startswith(close, i):
+            raise ValueError("unexpected %r in a PHP array" % text[i:i + 20])
+
+
+def parse_laravel(text):
+    """Reads a Laravel lang file (lang/ja/validation.php, `<?php return
+    [...];`) into {dotted.key: value}. Values the reader doesn't evaluate
+    (function calls, constants) are None."""
+    i = _php_skip(text, 0)
+    if text.startswith("<?php", i):
+        i += 5
+    while True:
+        i = _php_skip(text, i)
+        if _PHP_RETURN_RE.match(text, i):
+            value = _php_value(text, i + 6)[0]
+            if not isinstance(value, dict):
+                raise ValueError("the PHP file does not return an array")
+            return flatten(value)
+        end = text.find(";", i)
+        if end < 0:
+            raise ValueError("no return statement in the PHP file")
+        i = end + 1
+
+
+def _laravel_names(text):
+    """The names of the :name placeholders in a Laravel string, lower-cased."""
+    return {name.lower() for name in _LARAVEL_RE.findall(text)}
+
+
+def _lookalike_colon(name, target):
+    """How target writes :name with a look-alike colon ("：attribute"), or None."""
+    m = re.search("[%s] ?%s(?![A-Za-z0-9_])" % ("".join(_LOOKALIKE_COLONS), re.escape(name)),
+                  target, re.I)
+    return m.group(0) if m else None
+
+
+def _laravel_pair(source, target, key):
+    """check_pair for one Laravel string, by its :name placeholders. Brace and
+    printf placeholders are not compared: Laravel doesn't fill them, and its
+    plural ranges ({0}, [2,*]) may differ between languages."""
+    problems = [p for p in check_pair(source, target, key)
+                if p["code"] in ("empty", "tags", "untranslated")]
+    if not target.strip():
+        return problems
+    names, missing = _laravel_names(source), []
+    for name in sorted(names):
+        seen = _lookalike_colon(name, target)
+        if re.search(":%s(?![A-Za-z0-9_])" % re.escape(name), target, re.I):
+            if seen:
+                problems.append(issue(WARNING, "lookalike-colon",
+                                      "\"%s\" is written with %s, which Laravel doesn't replace, "
+                                      "so it is shown as written; the value itself appears at the "
+                                      "ASCII :%s" % (seen, _LOOKALIKE_COLONS[seen[0]], name), key))
+        elif seen:
+            problems.append(issue(ERROR, "lookalike-colon",
+                                  ":%s is written \"%s\" with %s, which Laravel doesn't replace: "
+                                  "the text is shown as written and the value is lost"
+                                  % (name, seen, _LOOKALIKE_COLONS[seen[0]]), key))
+        else:
+            missing.append(":" + name)
+    if missing:
+        problems.append(issue(ERROR, "placeholder-missing",
+                              "placeholder(s) missing: %s" % ", ".join(missing), key))
+    extra = sorted(_laravel_names(target) - names)
+    if extra:
+        problems.append(issue(WARNING, "placeholder-extra",
+                              "placeholder(s) not in source, shown as written unless the app "
+                              "passes them: %s" % ", ".join(":" + name for name in extra), key))
+    return problems
+
+
+def check_laravel(source_text, target_text):
+    """Compares a translated Laravel lang file (lang/ja/validation.php) with
+    the source one (lang/en/validation.php)."""
+    src, tgt = parse_laravel(source_text), parse_laravel(target_text)
+    problems = []
+    for key in sorted(src):
+        if key not in tgt:
+            if isinstance(src[key], str) and src[key].strip():
+                problems.append(issue(WARNING, "missing-key", "key missing from translation", key))
+        elif isinstance(src[key], str) and isinstance(tgt[key], str):
+            problems.extend(_laravel_pair(src[key], tgt[key], key))
+    for key in sorted(set(tgt) - set(src)):
+        problems.append(issue(WARNING, "extra-key", "key not in source", key))
+    return problems
+
+
 # ----------------------------------------------------------------- HTML / docs
 
 class _DocScan(HTMLParser):
@@ -1667,7 +1869,7 @@ def run(argv=None):
     parser.add_argument("--strict", action="store_true", help="treat warnings as errors")
     sub = parser.add_subparsers(dest="kind", required=True)
     for kind in ("html", "md", "json", "dir", "android", "strings", "properties", "arb",
-                 "resx"):
+                 "resx", "laravel"):
         p = sub.add_parser(kind)
         p.add_argument("source")
         p.add_argument("target")
@@ -1694,6 +1896,8 @@ def run(argv=None):
                                         _read_properties(args.target))
         elif args.kind == "resx":
             problems = check_resx(_read(args.source), _read(args.target))
+        elif args.kind == "laravel":
+            problems = check_laravel(_read(args.source), _read(args.target))
         elif args.kind == "arb":
             problems = check_arb(json.loads(_read(args.source)), json.loads(_read(args.target)))
         elif args.kind == "xliff":
