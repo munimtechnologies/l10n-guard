@@ -38,7 +38,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -190,6 +190,29 @@ def _lookalike_issues(source, target, missing, key):
     return problems
 
 
+# A Japanese translation sometimes keeps a word's katakana reading between
+# fullwidth number signs (削除＃サクジョ＃ for "Delete"), as some machine
+# translation and dictionary tools write it: users see the reading as text
+# (0.11.0). A warning, since nothing breaks. The sign must follow a character
+# other than a space or ＃, so a hashtag (＃タグ) or ICU's ＃ isn't one.
+_READING_LEAK_RE = re.compile(r"(?<=[^\s＃])＃[ァ-ヺー]+＃")
+
+
+def _reading_leak(source, target, key=None):
+    """A reading-leak warning when target shows a katakana reading between
+    fullwidth number signs and source has no # or ＃; else []."""
+    if not isinstance(source, str) or not isinstance(target, str):
+        return []
+    if "#" in source or "＃" in source:
+        return []
+    found = _READING_LEAK_RE.findall(target)
+    if not found:
+        return []
+    return [issue(WARNING, "reading-leak",
+                  "%s: a katakana reading between fullwidth number signs, which users see as "
+                  "text; the source has no number sign" % ", ".join(found), key)]
+
+
 def _diff(source, target):
     missing = source - target
     extra = target - source
@@ -219,6 +242,7 @@ def check_pair(source, target, key=None):
         if extra:
             parts.append("extra " + " ".join(extra))
         problems.append(issue(ERROR, "tags", "markup differs: %s" % "; ".join(parts), key))
+    problems.extend(_reading_leak(source, target, key))
     if source.strip() and target.strip() == source.strip() and re.search(r"[A-Za-z]{4,}", source):
         problems.append(issue(WARNING, "untranslated", "translation is identical to source", key))
     return problems
@@ -1407,7 +1431,7 @@ def _laravel_pair(source, target, key):
     printf placeholders are not compared: Laravel doesn't fill them, and its
     plural ranges ({0}, [2,*]) may differ between languages."""
     problems = [p for p in check_pair(source, target, key)
-                if p["code"] in ("empty", "tags", "untranslated")]
+                if p["code"] in ("empty", "tags", "untranslated", "reading-leak")]
     if not target.strip():
         return problems
     names, missing = _laravel_names(source), []
@@ -1796,7 +1820,7 @@ def _rails_pair(source, target, key, quantity=None):
     plural form for zero, one or two a missing placeholder is a warning, and
     any form may add %{count}, which I18n always passes."""
     problems = [p for p in check_pair(source, target, key)
-                if p["code"] in ("empty", "tags", "untranslated")]
+                if p["code"] in ("empty", "tags", "untranslated", "reading-leak")]
     if not target.strip():
         return problems
     names, found, missing = _rails_names(source), _rails_names(target), []
@@ -2156,6 +2180,7 @@ def check_document(source_text, target_text, kind="html", lang=None):
     if lost:
         problems.append(issue(WARNING, "numbers", "numbers in source prose not found in translation: %s"
                               % ", ".join(lost)))
+    problems.extend(_reading_leak(source_text, target_text))
     return problems
 
 
@@ -2384,6 +2409,7 @@ def check_qt(text):
             if form.strip():
                 where = "%s (form %d)" % (key, i) if msg["numerus"] else key
                 problems.extend(_qt_arg_issues(msg["source"], form, where, level))
+                problems.extend(_reading_leak(msg["source"], form, where))
         if msg["numerus"]:
             problems.extend(_qt_count_issues(msg["source"], msg["forms"], key, level))
     return problems, stats

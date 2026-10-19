@@ -104,6 +104,15 @@ exactly these.
   OpenStreetMap, SonataAdminBundle, Akeneo PIM and OpenDXP had such strings, all in Chinese,
   Japanese or Arabic ([Rails](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/lookalike-percent/RAILS.md),
   [Symfony](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/lookalike-percent/SYMFONY.md)).
+- **Leaked katakana readings** (0.11.0, code `reading-leak`): a Japanese translation that keeps a
+  word's reading between fullwidth number signs, as in `削除＃サクジョ＃` for "Delete", shows the
+  reading to users as text. It is reported when a `＃` follows a character other than a space,
+  then katakana, then a second `＃`, and the source has no `#` or `＃`, in every kind. Nothing
+  breaks, so it is a warning. A reading written in hiragana with no signs (`検索けんさく`) is not
+  reported, because kanji followed by hiragana is ordinary written Japanese. The rule and its
+  predictions were published before the code ([pre-registration](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/mt-artifacts/READING-LEAK-PREREG.md));
+  on 2026-10-18 the Japanese file of the Nostr client nostrmo had 18 such strings
+  ([note](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/mt-artifacts/KATAKANA-READING.md)).
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -199,7 +208,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.10.0
+- uses: munimtechnologies/l10n-guard@v0.11.0
   with:
     kind: json
     source: locales/en.json
@@ -210,17 +219,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.10.0
+- uses: munimtechnologies/l10n-guard@v0.11.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.10.0
+- uses: munimtechnologies/l10n-guard@v0.11.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.10.0
+- uses: munimtechnologies/l10n-guard@v0.11.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -229,7 +238,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.10.0
+- uses: munimtechnologies/l10n-guard@v0.11.0
   with:
     kind: dir
     source: docs
