@@ -38,7 +38,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -595,6 +595,118 @@ def flatten(data, prefix=""):
 _PLURAL_SUFFIX_RE = re.compile(r"_(zero|one|two|few|many|other)$")
 
 
+# Two keys whose source texts differ only by antonyms ("Default expanded" /
+# "Default collapse", "Mute" / "Unmute") but share one translation: one of the
+# two labels says the opposite of what it does, or users can't tell them
+# apart. A source fix that keeps the old translations leaves this shape
+# (0.12.0). A warning. The word classes were fixed in the census's
+# antonym-collision/PREREG.md before any scan; antonyms outside them
+# ("Visible" / "Hidden") are missed.
+_ANTONYM_CLASSES = {
+    "EXPAND": ("expand expands expanded expanding unfold unfolded",
+               "collapse collapses collapsed collapsing fold folded"),
+    "SHOW": ("show shows showing shown", "hide hides hiding hidden"),
+    "ENABLE": ("enable enables enabled enabling", "disable disables disabled disabling"),
+    "OPEN": ("open opens opened opening", "close closes closed closing"),
+    "LOCK": ("lock locks locked locking", "unlock unlocks unlocked unlocking"),
+    "ALLOW": ("allow allows allowed allowing",
+              "deny denies denied denying disallow disallowed forbid forbidden"),
+    "VISIBLE": ("visible", "invisible"),
+    "SORT": ("ascending asc", "descending desc"),
+    "INCREASE": ("increase increases increased", "decrease decreases decreased"),
+    "MAX": ("max maximum", "min minimum"),
+    "INCLUDE": ("include includes included including", "exclude excludes excluded excluding"),
+    "SELECT": ("select selected", "deselect deselected unselect unselected"),
+    "PIN": ("pin pinned", "unpin unpinned"),
+    "MUTE": ("mute muted", "unmute unmuted"),
+    "FOLLOW": ("follow followed", "unfollow unfollowed"),
+    "BLOCK": ("block blocked", "unblock unblocked"),
+    "FAVOURITE": ("favourite favorite favourited favorited",
+                  "unfavourite unfavorite unfavourited unfavorited"),
+    "BOOKMARK": ("bookmark bookmarked", "unbookmark unbookmarked"),
+    "SUBSCRIBE": ("subscribe subscribed", "unsubscribe unsubscribed"),
+    "ARCHIVE": ("archive archived", "unarchive unarchived"),
+    "ADD": ("add added", "remove removed"),
+    "IMPORT": ("import imported", "export exported"),
+    "UPLOAD": ("upload uploaded", "download downloaded"),
+    "START": ("start starts started", "end ends ended"),
+    "BEFORE": ("before", "after"),
+    "ABOVE": ("above", "below"),
+    "LEFT": ("left", "right"),
+    "FIRST": ("first", "last"),
+    "NEXT": ("next", "previous prev"),
+    "MORE": ("more", "less"),
+    "IN": ("in", "out"),
+    "ON": ("on", "off"),
+    "YES": ("yes", "no"),
+    "TRUE": ("true", "false"),
+    "READ": ("read", "unread"),
+    "PUBLIC": ("public", "private"),
+    "ONLINE": ("online", "offline"),
+    "CONNECT": ("connect connected", "disconnect disconnected"),
+    "LOGIN": ("login", "logout"),
+    "REQUIRED": ("required", "optional"),
+}
+_ANTONYMS = {}
+for _cls, (_plus, _minus) in _ANTONYM_CLASSES.items():
+    for _word in _plus.split():
+        _ANTONYMS[_word] = (_cls, 1)
+    for _word in _minus.split():
+        _ANTONYMS[_word] = (_cls, -1)
+_WORD_RE = re.compile(r"[a-z]+")
+
+
+def _antonym_signature(text):
+    """(words with antonyms replaced by their class, polarity of each word)."""
+    sig, pol = [], []
+    for word in _WORD_RE.findall(text.lower()):
+        cls, p = _ANTONYMS.get(word, (word, 0))
+        sig.append(cls)
+        pol.append(p)
+    return tuple(sig), tuple(pol)
+
+
+def antonym_pairs(source):
+    """Sorted (key1, key2) of keys whose source texts differ only by an odd
+    number of antonym flips (inflections of one side don't count)."""
+    groups = {}
+    for key, text in source.items():
+        if not isinstance(text, str):
+            continue
+        sig, pol = _antonym_signature(text)
+        if any(pol):
+            groups.setdefault(sig, []).append((key, pol))
+    pairs = []
+    for members in groups.values():
+        members.sort()
+        for i, (k1, p1) in enumerate(members):
+            for k2, p2 in members[i + 1:]:
+                if sum(1 for a, b in zip(p1, p2) if a and a != b) % 2:
+                    pairs.append((k1, k2))
+    return sorted(pairs)
+
+
+def _antonym_collisions(source, target):
+    """antonym-collision warnings for two flattened catalogs. A shared value
+    equal to either source text is an untranslated copy, not a collision."""
+    problems = []
+    for k1, k2 in antonym_pairs(source):
+        v1, v2 = target.get(k1), target.get(k2)
+        if not isinstance(v1, str) or not isinstance(v2, str):
+            continue
+        v1, v2 = v1.strip(), v2.strip()
+        if not v1 or v1 != v2:
+            continue
+        if v1.casefold() in (source[k1].strip().casefold(), source[k2].strip().casefold()):
+            continue
+        p = issue(WARNING, "antonym-collision",
+                  "same translation as %s (%r), though the sources say opposite things: %r / %r"
+                  % (k2, v1, source[k1], source[k2]), k1)
+        p["other_key"] = k2
+        problems.append(p)
+    return problems
+
+
 def check_catalog(source, target):
     """Compares two loaded JSON catalogs (dicts). Returns a list of issues."""
     src, tgt = flatten(source), flatten(target)
@@ -624,6 +736,7 @@ def check_catalog(source, target):
                 problems.extend(check_pair(other, tgt[key], key))
             continue
         problems.append(issue(WARNING, "extra-key", "key not in source", key))
+    problems.extend(_antonym_collisions(src, tgt))
     return problems
 
 
