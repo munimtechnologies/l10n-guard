@@ -121,7 +121,13 @@ exactly these.
   is left to the untranslated check. The 40 word classes were fixed before any scan, and antonyms
   outside them ("Visible" / "Hidden") are missed, so it is a warning
   ([scan](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/antonym-collision/RESULTS.md),
-  [pre-registration of this check](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/antonym-collision/GUARD-PREREG.md)).
+  [pre-registration of this check](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/antonym-collision/GUARD-PREREG.md),
+  [test results](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/antonym-collision/GUARD-RESULTS.md)). Since 0.13.0 the upload/download
+  class is left out, as fixed in advance by a
+  [second held-out test](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/antonym-collision/HOLDOUT2-RESULTS.md): in French, Arabic,
+  Russian, Ukrainian and Finnish one word covers both directions, so 11 of the 12 warnings graded in
+  that class were not defects, while all 49 graded in the other classes were real (graded by AI
+  agents, not native speakers). 39 word classes remain.
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -217,7 +223,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.12.0
+- uses: munimtechnologies/l10n-guard@v0.13.0
   with:
     kind: json
     source: locales/en.json
@@ -228,17 +234,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.12.0
+- uses: munimtechnologies/l10n-guard@v0.13.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.12.0
+- uses: munimtechnologies/l10n-guard@v0.13.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.12.0
+- uses: munimtechnologies/l10n-guard@v0.13.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -247,7 +253,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.12.0
+- uses: munimtechnologies/l10n-guard@v0.13.0
   with:
     kind: dir
     source: docs

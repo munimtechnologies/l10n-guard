@@ -38,7 +38,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -601,7 +601,10 @@ _PLURAL_SUFFIX_RE = re.compile(r"_(zero|one|two|few|many|other)$")
 # apart. A source fix that keeps the old translations leaves this shape
 # (0.12.0). A warning. The word classes were fixed in the census's
 # antonym-collision/PREREG.md before any scan; antonyms outside them
-# ("Visible" / "Hidden") are missed.
+# ("Visible" / "Hidden") are missed. 0.13.0 drops upload/download: in French,
+# Arabic, Russian, Ukrainian and Finnish one word covers both directions, so
+# its warnings were mostly not defects (the census's
+# antonym-collision/HOLDOUT2-RESULTS.md).
 _ANTONYM_CLASSES = {
     "EXPAND": ("expand expands expanded expanding unfold unfolded",
                "collapse collapses collapsed collapsing fold folded"),
@@ -628,7 +631,6 @@ _ANTONYM_CLASSES = {
     "ARCHIVE": ("archive archived", "unarchive unarchived"),
     "ADD": ("add added", "remove removed"),
     "IMPORT": ("import imported", "export exported"),
-    "UPLOAD": ("upload uploaded", "download downloaded"),
     "START": ("start starts started", "end ends ended"),
     "BEFORE": ("before", "after"),
     "ABOVE": ("above", "below"),
