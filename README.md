@@ -14,6 +14,9 @@ exactly these.
 - **JSON catalogs** (i18next, vue-i18n, next-intl, flat or nested): placeholders, markup, missing
   and extra keys, value types, and plural keys (`_one`, `_few`, `_many`, `_other`), checked per
   language, so Japanese with only `_other` or Polish with `_few`/`_many` doesn't raise false alarms.
+  Since 0.14.0 the source may be a FormatJS `extract` file (`{"id": {"defaultMessage": ...,
+  "description": ...}}`, as Mattermost's `en.json`): each `defaultMessage` is the source text,
+  descriptions are not compared, and flat translations of such a file are checked key by key.
 - **gettext `.po`**: placeholders per entry, plural form count against the `Plural-Forms` header,
   and counts of fuzzy and untranslated entries.
 - **Java `.properties`**: ResourceBundle and Spring message bundles, with `#`/`!`
@@ -223,7 +226,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.13.0
+- uses: munimtechnologies/l10n-guard@v0.14.0
   with:
     kind: json
     source: locales/en.json
@@ -234,17 +237,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.13.0
+- uses: munimtechnologies/l10n-guard@v0.14.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.13.0
+- uses: munimtechnologies/l10n-guard@v0.14.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.13.0
+- uses: munimtechnologies/l10n-guard@v0.14.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -253,7 +256,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.13.0
+- uses: munimtechnologies/l10n-guard@v0.14.0
   with:
     kind: dir
     source: docs

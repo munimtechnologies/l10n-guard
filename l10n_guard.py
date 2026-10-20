@@ -38,7 +38,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.13.0"
+__version__ = "0.14.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -709,8 +709,25 @@ def _antonym_collisions(source, target):
     return problems
 
 
+def unwrap_descriptors(data):
+    """A FormatJS `extract` file maps each id to {"defaultMessage": ...,
+    "description": ...} (Mattermost's en.json). When every value of a catalog
+    is such an object with a string defaultMessage, returns {id: defaultMessage},
+    so the message is the text and descriptions are not compared. Any other
+    catalog is returned unchanged (0.14.0; the census's
+    antonym-collision/FORMATJS-PREREG.md)."""
+    if not isinstance(data, dict) or not data:
+        return data
+    for value in data.values():
+        if not isinstance(value, dict) or not isinstance(value.get("defaultMessage"), str):
+            return data
+    return {key: value["defaultMessage"] for key, value in data.items()}
+
+
 def check_catalog(source, target):
-    """Compares two loaded JSON catalogs (dicts). Returns a list of issues."""
+    """Compares two loaded JSON catalogs (dicts). Returns a list of issues.
+    FormatJS descriptor files are read as {id: defaultMessage} first (0.14.0)."""
+    source, target = unwrap_descriptors(source), unwrap_descriptors(target)
     src, tgt = flatten(source), flatten(target)
     problems = []
     src_bases = {_PLURAL_SUFFIX_RE.sub("", k) for k in src}
