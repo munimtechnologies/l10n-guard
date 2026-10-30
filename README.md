@@ -131,6 +131,14 @@ exactly these.
   Russian, Ukrainian and Finnish one word covers both directions, so 11 of the 12 warnings graded in
   that class were not defects, while all 49 graded in the other classes were real (graded by AI
   agents, not native speakers). 39 word classes remain.
+- **Invisible characters** (0.15.0, code `invisible-char`, every format): a translation that
+  carries a zero-width space, soft hyphen, word joiner, byte-order mark or other invisible format
+  character its source doesn't have is a warning, since it breaks search, wrapping and string
+  comparison without showing on screen. Zero-width spaces in Thai, Lao, Tibetan, Myanmar and
+  Khmer, directional marks and bidi controls in right-to-left text, zero-width (non-)joiners, and
+  soft hyphens between two letters (hyphenation points in compound words) are normal there and
+  not reported. The exemptions were checked against the census of 2,392 F-Droid apps in
+  [android-translation-crash-census/hidden-chars](https://github.com/munimtechnologies/android-translation-crash-census/tree/main/hidden-chars).
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -226,7 +234,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.14.0
+- uses: munimtechnologies/l10n-guard@v0.15.0
   with:
     kind: json
     source: locales/en.json
@@ -237,17 +245,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.14.0
+- uses: munimtechnologies/l10n-guard@v0.15.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.14.0
+- uses: munimtechnologies/l10n-guard@v0.15.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.14.0
+- uses: munimtechnologies/l10n-guard@v0.15.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -256,7 +264,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.14.0
+- uses: munimtechnologies/l10n-guard@v0.15.0
   with:
     kind: dir
     source: docs

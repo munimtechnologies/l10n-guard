@@ -34,11 +34,12 @@ import json
 import os
 import re
 import sys
+import unicodedata
 import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -219,6 +220,67 @@ def _diff(source, target):
     return sorted(missing.elements()), sorted(extra.elements())
 
 
+# Invisible format characters a translation can pick up from a translation
+# tool or a copy and paste (0.15.0, code invisible-char).
+_INVISIBLE_NAMES = {0x00AD: "soft hyphen", 0x061C: "Arabic letter mark",
+                    0x200B: "zero-width space", 0x200E: "left-to-right mark",
+                    0x200F: "right-to-left mark", 0x2060: "word joiner",
+                    0xFEFF: "byte-order mark"}
+# Thai, Lao, Tibetan, Myanmar and Khmer mark word breaks with U+200B.
+_NO_SPACE_SCRIPT_RE = re.compile(r"[\u0e00-\u0eff\u0f00-\u0fff\u1000-\u109f\u1780-\u17ff]")
+# Hebrew to Arabic Extended-A, and the Hebrew and Arabic presentation forms.
+_RTL_RE = re.compile(r"[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]")
+# Mongolian letters and digits, without the format characters U+180B-U+180F.
+_MONGOLIAN_RE = re.compile(r"[\u1800-\u180a\u1810-\u18af]")
+
+
+def _soft_hyphens_between_letters(text):
+    """True if every soft hyphen in text sits between two letters of an
+    alphabetic script: a hyphenation point, as in Dutch and German compounds.
+    Not one next to a space, punctuation, the string's ends, or CJK text."""
+    for i, ch in enumerate(text):
+        if ch != "\u00ad":
+            continue
+        before, after = text[i - 1:i], text[i + 1:i + 2]
+        if not (before.isalpha() and after.isalpha()
+                and ord(before) < 0x2E80 and ord(after) < 0x2E80):
+            return False
+    return True
+
+
+def _invisible_issues(source, target, key=None):
+    """An invisible-char warning when target has format characters (Unicode
+    category Cf) that source doesn't: a zero-width space, soft hyphen, word
+    joiner, byte-order mark, or a directional mark or bidi control outside
+    right-to-left text. Not reported: zero-width (non-)joiners, which shape
+    Indic and Persian words; U+200B in Thai, Lao, Tibetan, Myanmar and Khmer
+    text; marks and bidi controls in right-to-left text; soft hyphens between
+    two letters; Arabic number signs; emoji tag characters; and the Mongolian
+    vowel separator in Mongolian."""
+    found = []
+    for ch in sorted(set(target) - set(source)):
+        cp = ord(ch)
+        if unicodedata.category(ch) != "Cf" or cp in (0x200C, 0x200D):
+            continue
+        if 0x0600 <= cp <= 0x08FF and cp != 0x061C or 0xE0020 <= cp <= 0xE007F:
+            continue
+        if cp == 0x200B and _NO_SPACE_SCRIPT_RE.search(target):
+            continue
+        if ((cp in (0x061C, 0x200E, 0x200F) or 0x202A <= cp <= 0x202E or 0x2066 <= cp <= 0x2069)
+                and _RTL_RE.search(target)):
+            continue
+        if cp == 0x00AD and _soft_hyphens_between_letters(target):
+            continue
+        if cp == 0x180E and _MONGOLIAN_RE.search(target):
+            continue
+        found.append(cp)
+    if not found:
+        return []
+    names = ", ".join("U+%04X (%s)" % (cp, _INVISIBLE_NAMES[cp]) if cp in _INVISIBLE_NAMES
+                      else "U+%04X" % cp for cp in found)
+    return [issue(WARNING, "invisible-char", "invisible character(s) not in source: %s" % names, key)]
+
+
 def check_pair(source, target, key=None):
     """Checks one translated string against its source string."""
     problems = []
@@ -243,6 +305,7 @@ def check_pair(source, target, key=None):
             parts.append("extra " + " ".join(extra))
         problems.append(issue(ERROR, "tags", "markup differs: %s" % "; ".join(parts), key))
     problems.extend(_reading_leak(source, target, key))
+    problems.extend(_invisible_issues(source, target, key))
     if source.strip() and target.strip() == source.strip() and re.search(r"[A-Za-z]{4,}", source):
         problems.append(issue(WARNING, "untranslated", "translation is identical to source", key))
     return problems
