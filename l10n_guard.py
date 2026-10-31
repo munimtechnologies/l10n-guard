@@ -39,7 +39,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.15.0"
+__version__ = "0.16.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -228,6 +228,8 @@ _INVISIBLE_NAMES = {0x00AD: "soft hyphen", 0x061C: "Arabic letter mark",
                     0xFEFF: "byte-order mark"}
 # Thai, Lao, Tibetan, Myanmar and Khmer mark word breaks with U+200B.
 _NO_SPACE_SCRIPT_RE = re.compile(r"[\u0e00-\u0eff\u0f00-\u0fff\u1000-\u109f\u1780-\u17ff]")
+# A space then two U+200B is not a word-break hint in any script (0.16.0).
+_ZWSP_PAIR_RE = re.compile(r" \u200b\u200b")
 # Hebrew to Arabic Extended-A, and the Hebrew and Arabic presentation forms.
 _RTL_RE = re.compile(r"[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]")
 # Mongolian letters and digits, without the format characters U+180B-U+180F.
@@ -254,7 +256,7 @@ def _invisible_issues(source, target, key=None):
     joiner, byte-order mark, or a directional mark or bidi control outside
     right-to-left text. Not reported: zero-width (non-)joiners, which shape
     Indic and Persian words; U+200B in Thai, Lao, Tibetan, Myanmar and Khmer
-    text; marks and bidi controls in right-to-left text; soft hyphens between
+    text, unless a space comes before two of them; marks and bidi controls in right-to-left text; soft hyphens between
     two letters; Arabic number signs; emoji tag characters; and the Mongolian
     vowel separator in Mongolian."""
     found = []
@@ -264,7 +266,8 @@ def _invisible_issues(source, target, key=None):
             continue
         if 0x0600 <= cp <= 0x08FF and cp != 0x061C or 0xE0020 <= cp <= 0xE007F:
             continue
-        if cp == 0x200B and _NO_SPACE_SCRIPT_RE.search(target):
+        if (cp == 0x200B and _NO_SPACE_SCRIPT_RE.search(target)
+                and not _ZWSP_PAIR_RE.search(target)):
             continue
         if ((cp in (0x061C, 0x200E, 0x200F) or 0x202A <= cp <= 0x202E or 0x2066 <= cp <= 0x2069)
                 and _RTL_RE.search(target)):
@@ -278,6 +281,8 @@ def _invisible_issues(source, target, key=None):
         return []
     names = ", ".join("U+%04X (%s)" % (cp, _INVISIBLE_NAMES[cp]) if cp in _INVISIBLE_NAMES
                       else "U+%04X" % cp for cp in found)
+    if 0x200B in found and _ZWSP_PAIR_RE.search(target):
+        names += "; a space followed by two U+200B"
     return [issue(WARNING, "invisible-char", "invisible character(s) not in source: %s" % names, key)]
 
 
