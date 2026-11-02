@@ -141,6 +141,19 @@ exactly these.
   (the space already is one) and is reported in every language. The exemptions were checked against the census of 2,392 F-Droid apps in
   [android-translation-crash-census/hidden-chars](https://github.com/munimtechnologies/android-translation-crash-census/tree/main/hidden-chars), the 0.16.0 rule in
   [zwsp-langs](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/hidden-chars/zwsp-langs/RESULTS.md).
+- **Simplified characters in Traditional Chinese** (0.17.0, code `wrong-script`): when the
+  translation is Traditional Chinese (`zh-TW`, `zh-HK`, `zh-MO`, `zh-Hant`, Android's
+  `values-zh-rTW` or `values-b+zh+Hant`), a Simplified-only character its source doesn't have
+  (这 for 這, 设 for 設) is a warning: text that was never converted, or only partly. The
+  locale is read from the target's path, or given with `--locale zh-TW`. The `android`, `json`,
+  `arb`, `strings`, `properties` and `resx` kinds are checked, and the new `text` kind compares
+  two plain-text files, such as app-store listings, for this and for invisible characters. The
+  3,771 characters come from OpenCC; the Cantonese particle 晒 is not reported in Hong Kong and
+  Macau. In the census, 188 of 692 F-Droid apps with a Traditional Chinese translation shipped
+  such characters, and hand checks by AI agents found 39 of 40 flagged strings
+  ([results](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/hanzi-leak/RESULTS.md)) and 32 of 35 flagged store-listing lines
+  ([results](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/hanzi-meta/RESULTS.md)) to be real defects. Mainland
+  vocabulary written in Traditional characters is not checked.
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -210,6 +223,8 @@ python3 l10n_guard.py qt         translations/app_ar.ts
 python3 l10n_guard.py html       secure-ollama.html de/secure-ollama.html
 python3 l10n_guard.py md         README.md README.ja.md
 python3 l10n_guard.py dir        site site/ja
+python3 l10n_guard.py text       fastlane/metadata/android/en-US/full_description.txt fastlane/metadata/android/zh-TW/full_description.txt
+python3 l10n_guard.py --locale zh-Hant json en.json zh.json   # when the path doesn't name the language
 python3 l10n_guard.py --json --strict json en.json fr.json   # options go before the kind
 ```
 
@@ -231,12 +246,13 @@ example `4 units, 3 translated, 1 untranslated`.
 
 Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn't be read.
 `--strict` counts warnings as errors. `--json` prints machine-readable output.
+`--locale zh-TW` names the translation's language when its path doesn't.
 
 ## GitHub Action
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.16.1
+- uses: munimtechnologies/l10n-guard@v0.17.0
   with:
     kind: json
     source: locales/en.json
@@ -247,17 +263,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.16.1
+- uses: munimtechnologies/l10n-guard@v0.17.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.16.1
+- uses: munimtechnologies/l10n-guard@v0.17.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.16.1
+- uses: munimtechnologies/l10n-guard@v0.17.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -266,7 +282,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.16.1
+- uses: munimtechnologies/l10n-guard@v0.17.0
   with:
     kind: dir
     source: docs
@@ -279,7 +295,7 @@ A whole translated folder:
 `l10n-guard` command (pip needs Python 3.9 or newer for this; the file itself still runs on 3.8):
 
 ```sh
-pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.16.1"
+pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.17.0"
 l10n-guard android values/strings.xml values-fr/strings.xml
 ```
 
@@ -292,7 +308,7 @@ whole locale folder.
 ```yaml
 repos:
   - repo: https://github.com/munimtechnologies/l10n-guard
-    rev: v0.16.1
+    rev: v0.17.0
     hooks:
       - id: l10n-guard
         name: l10n-guard (de)
