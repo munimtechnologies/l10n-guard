@@ -1,0 +1,7 @@
+- id: l10n-guard
+  name: l10n-guard
+  description: Check that translations keep their placeholders, markup, code blocks and links.
+  entry: l10n-guard
+  language: python
+  pass_filenames: false
+  require_serial: true

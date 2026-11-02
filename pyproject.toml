@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "l10n-guard"
+dynamic = ["version"]
+description = "Check that translations keep their placeholders, markup, code blocks and links."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+authors = [{ name = "MV2, Munim, Inc.", email = "mv2@munimtech.com" }]
+keywords = ["i18n", "l10n", "localization", "translation", "lint", "pre-commit"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Internationalization",
+    "Topic :: Software Development :: Localization",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.urls]
+Homepage = "https://github.com/munimtechnologies/l10n-guard"
+Issues = "https://github.com/munimtechnologies/l10n-guard/issues"
+
+[project.scripts]
+l10n-guard = "l10n_guard:run"
+
+[tool.setuptools]
+py-modules = ["l10n_guard"]
+
+[tool.setuptools.dynamic]
+version = { attr = "l10n_guard.__version__" }

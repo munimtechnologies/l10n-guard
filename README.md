@@ -236,7 +236,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.16.0
+- uses: munimtechnologies/l10n-guard@v0.16.1
   with:
     kind: json
     source: locales/en.json
@@ -247,17 +247,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.16.0
+- uses: munimtechnologies/l10n-guard@v0.16.1
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.16.0
+- uses: munimtechnologies/l10n-guard@v0.16.1
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.16.0
+- uses: munimtechnologies/l10n-guard@v0.16.1
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -266,12 +266,42 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.16.0
+- uses: munimtechnologies/l10n-guard@v0.16.1
   with:
     kind: dir
     source: docs
     target: docs/de
 ```
+
+## Install with pip or pre-commit
+
+`l10n_guard.py` is one file and needs nothing else, but it can also be installed as an
+`l10n-guard` command (pip needs Python 3.9 or newer for this; the file itself still runs on 3.8):
+
+```sh
+pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.16.1"
+l10n-guard android values/strings.xml values-fr/strings.xml
+```
+
+To check translations on every commit with [pre-commit](https://pre-commit.com), add the hook to
+`.pre-commit-config.yaml`. `args` are the same as on the command line (`--strict` and `--json`
+first, then the kind, source and target); `files` makes the hook run only when a translation file
+is part of the commit. Add one hook entry per source/target pair, or use the `dir` kind for a
+whole locale folder.
+
+```yaml
+repos:
+  - repo: https://github.com/munimtechnologies/l10n-guard
+    rev: v0.16.1
+    hooks:
+      - id: l10n-guard
+        name: l10n-guard (de)
+        args: [json, locales/en.json, locales/de.json]
+        files: ^locales/
+```
+
+The commit is stopped when l10n-guard finds an error (exit code 1), and with `--strict` also
+when it finds a warning.
 
 ## Tested on real translations
 

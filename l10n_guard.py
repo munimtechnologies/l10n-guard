@@ -39,7 +39,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.16.0"
+__version__ = "0.16.1"
 
 ERROR = "error"
 WARNING = "warning"
