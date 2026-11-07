@@ -40,7 +40,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.17.0"
+__version__ = "0.18.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -2759,6 +2759,210 @@ def check_text(source_text, target_text, locale=None):
             + _script_issue(source_text, target_text, traditional_chinese(locale)))
 
 
+# --- 0.18.0: folder-script and locale-code -------------------------------------
+# Folder-level warnings for Android translation files: a values-<code> folder whose
+# translated strings are mostly not in its language's script (Welsh in values-ar,
+# Japanese in values-be, English left in values-ru), and folder names that use a code
+# which is not a language (values-ua, values-cz, values-cn). The rule and its thresholds
+# come from a pre-registered census of 4,588 F-Droid app repositories, where 26 of 32
+# hand-checked flagged folders were real defects:
+# https://github.com/munimtechnologies/android-translation-crash-census/blob/main/locale-mismatch/RESULTS.md
+
+import unicodedata as _fs_unicodedata
+
+FOLDER_SCRIPT_MIN = 10
+
+
+def _fs_script_table():
+    table = {}
+    for script, langs in (
+            ("Cyrillic", "ru uk be bg mk kk ky tg tt ba cv os ce kv av"),
+            ("Greek", "el"), ("Armenian", "hy"), ("Hebrew", "he iw yi ji"),
+            ("Arabic", "ar fa ur ps ckb ug"), ("Devanagari", "hi mr ne sa"),
+            ("Bengali", "bn as"), ("Gujarati", "gu"), ("Oriya", "or"), ("Tamil", "ta"),
+            ("Telugu", "te"), ("Kannada", "kn"), ("Malayalam", "ml"), ("Sinhala", "si"),
+            ("Thai", "th"), ("Lao", "lo"), ("Tibetan", "bo dz"), ("Myanmar", "my"),
+            ("Georgian", "ka"), ("Hangul", "ko"), ("Ethiopic", "am ti"), ("Khmer", "km"),
+            ("Han", "zh")):
+        for lang in langs.split():
+            table[lang] = frozenset([script])
+    table["ja"] = frozenset(["Han", "Kana"])
+    return table
+
+
+# Languages written in one script. Languages with several scripts in everyday use
+# (sr, uz, az, pa, ku, mn, sd) are left out on purpose.
+FOLDER_SCRIPTS = _fs_script_table()
+
+# Two-letter codes that are not ISO 639-1 languages but are often used as if they were
+# (mostly country codes). Android picks a values-<code> folder by the phone's language
+# code, so no phone language setting selects these folders.
+LOCALE_CODE_FIXES = {
+    "cn": "zh (values-zh-rCN)", "cz": "cs", "ua": "uk", "jp": "ja", "by": "be",
+    "dk": "da", "gr": "el", "sp": "es", "du": "nl", "vn": "vi", "al": "sq", "ir": "fa",
+    "il": "he (or values-iw)", "hk": "zh (values-zh-rHK)", "us": "en (values-en-rUS)",
+    "gb": "en (values-en-rGB)", "pk": "ur", "ge": "ka", "mx": "es (values-es-rMX)",
+    "rs": "sr", "kz": "kk",
+}
+
+_FS_SCRIPT_WORDS = frozenset([
+    "LATIN", "CYRILLIC", "GREEK", "ARMENIAN", "HEBREW", "ARABIC", "DEVANAGARI", "BENGALI",
+    "GUJARATI", "ORIYA", "TAMIL", "TELUGU", "KANNADA", "MALAYALAM", "SINHALA", "THAI", "LAO",
+    "TIBETAN", "MYANMAR", "GEORGIAN", "HANGUL", "ETHIOPIC", "KHMER"])
+_FS_FOLDER_RE = re.compile(r"(?:^|[/\\])values-(?:([a-z]{2,3})(?:-r(?:[A-Z]{2}|[0-9]{3}))?"
+                           r"|b\+([a-zA-Z]{2,3})((?:\+[A-Za-z0-9]+)*))(?=[/\\]|$)")
+_FS_TAG_RE = re.compile(r"^([A-Za-z]{2,3})(?:[-_][A-Za-z0-9]+)*$")
+_FS_ESCAPE_RE = re.compile(r"\\u[0-9a-fA-F]{4}|\\.")
+_FS_FORMAT_RE = re.compile(r"%(?:\d+\$)?[-#+ 0,(<]*\d*(?:\.\d+)?[a-zA-Z]|\{[^{}]*\}|https?://\S+")
+_FS_WORD_RE = re.compile(r"[^\W\d_]{3,}")
+
+
+def _fs_script_subtag(parts):
+    for part in parts:
+        if len(part) == 4 and part.isalpha():
+            return part.title()
+    return None
+
+
+def android_locale(locale):
+    """Return (language, script) for an Android res folder path such as
+    res/values-zh-rTW/strings.xml or res/values-b+sr+Latn/strings.xml, or for a language
+    tag such as zh-Hant; (None, None) when there is none."""
+    if not locale:
+        return None, None
+    text = str(locale)
+    found = _FS_FOLDER_RE.findall(text)
+    if found:
+        legacy, bcp, rest = found[-1]
+        if legacy:
+            return legacy, None
+        return bcp.lower(), _fs_script_subtag(rest.split("+"))
+    if "/" in text or "\\" in text or not _FS_TAG_RE.match(text):
+        return None, None
+    parts = re.split(r"[-_]", text)
+    return parts[0].lower(), _fs_script_subtag(parts[1:])
+
+
+def _fs_units(text):
+    """Translatable Android strings as {key: text}; array items are name[i], plural items
+    name:quantity."""
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", "replace")
+    root = ET.fromstring(text.lstrip("﻿"))
+    units = {}
+    for el in root:
+        name = el.get("name")
+        if not isinstance(el.tag, str) or not name or el.get("translatable") == "false":
+            continue
+        if el.tag == "string":
+            units[name] = "".join(el.itertext()).strip()
+        elif el.tag in ("string-array", "array"):
+            items = [c for c in el if c.tag == "item"]
+            for i, c in enumerate(items):
+                units["%s[%d]" % (name, i)] = "".join(c.itertext()).strip()
+        elif el.tag == "plurals":
+            for c in el:
+                if c.tag == "item":
+                    units["%s:%s" % (name, c.get("quantity"))] = "".join(c.itertext()).strip()
+    return units
+
+
+def _fs_letter_script(c):
+    if not _fs_unicodedata.category(c).startswith("L"):
+        return None
+    words = _fs_unicodedata.name(c, "").split()
+    if len(words) > 1 and words[0] in ("FULLWIDTH", "HALFWIDTH"):
+        words = words[1:]
+    if not words:
+        return None
+    head = words[0]
+    if head == "CJK":
+        return "Han"
+    if head == "HIRAGANA" or head.startswith("KATAKANA"):
+        return "Kana"
+    if head in _FS_SCRIPT_WORDS:
+        return head.title()
+    return None
+
+
+def _fs_scripts(text):
+    return set(s for s in (_fs_letter_script(c) for c in text) if s)
+
+
+def _fs_plain(text):
+    return _FS_FORMAT_RE.sub(" ", _FS_ESCAPE_RE.sub(" ", text))
+
+
+def check_folder_script(source_text, target_text, locale):
+    """Folder-level warnings for one Android translation file. locale-code: the folder name
+    is not a language code. folder-script: at least FOLDER_SCRIPT_MIN translated strings
+    (those that differ from the source) are in another script, and they outnumber the
+    strings in the language's own script. `locale` is the target path or a language tag."""
+    lang, script = android_locale(locale)
+    if not lang:
+        return []
+    if lang in LOCALE_CODE_FIXES:
+        return [issue(WARNING, "locale-code",
+                      "'%s' is not a language code, so no phone language setting selects this "
+                      "folder (only an in-app language picker that asks for '%s' itself would); "
+                      "the language code is %s" % (lang, lang, LOCALE_CODE_FIXES[lang]))]
+    expected = FOLDER_SCRIPTS.get(lang)
+    if not expected or (script and lang != "zh"):
+        return []
+    source = _fs_units(source_text)
+    target = _fs_units(target_text)
+    source_scripts = set()
+    vocabulary = set()
+    for text in source.values():
+        plain = _fs_plain(text)
+        source_scripts |= _fs_scripts(plain)
+        vocabulary.update(w.lower() for w in _FS_WORD_RE.findall(plain))
+    units = own = latin = reused = 0
+    other = {}
+    for key, text in target.items():
+        base = source.get(key)
+        if base is None and ":" in key:
+            base = source.get(key.rsplit(":", 1)[0] + ":other")
+        if not text or not base or text == base:
+            continue
+        plain = _fs_plain(text)
+        scripts = _fs_scripts(plain)
+        units += 1
+        if scripts & expected:
+            own += 1
+        foreign = scripts - expected - source_scripts - {"Latin"}
+        if lang == "zh":
+            foreign.discard("Kana")
+        for name in foreign:
+            other[name] = other.get(name, 0) + 1
+        if scripts == {"Latin"}:
+            latin += 1
+            words = [w.lower() for w in _FS_WORD_RE.findall(plain)]
+            if words and 2 * sum(w in vocabulary for w in words) >= len(words):
+                reused += 1
+    want = " or ".join(sorted(expected))
+    if other:
+        name, count = sorted(other.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+        if count >= FOLDER_SCRIPT_MIN and count > own:
+            return [issue(WARNING, "folder-script",
+                          "%d of %d translated strings in this '%s' folder are written in %s "
+                          "script and %d in %s: it may hold another language's translation "
+                          "under the wrong code" % (count, units, lang, name, own, want))]
+    if latin >= FOLDER_SCRIPT_MIN and latin > own:
+        if 2 * reused >= latin:
+            cause = ("%d of them reuse the source's words, so most look like source text left "
+                     "untranslated (or an older wording of it)" % reused)
+        else:
+            cause = ("only %d of them reuse the source's words, so they may be another "
+                     "Latin-script language under the wrong code, or a deliberate Latin "
+                     "spelling of '%s', which belongs in a folder with a script tag "
+                     "(values-b+%s+Latn)" % (reused, lang, lang))
+        return [issue(WARNING, "folder-script",
+                      "%d of %d translated strings in this '%s' folder use only Latin letters "
+                      "and %d use %s script; %s" % (latin, units, lang, own, want, cause))]
+    return []
+
+
 def _script_maps(kind, source_path, target_path):
     """{key: text} of both files of a kind in _SCRIPT_KINDS, for check_script."""
     readers = {
@@ -2855,6 +3059,9 @@ def run(argv=None):
         if args.kind in _SCRIPT_KINDS and traditional_chinese(args.locale or args.target):
             source_map, target_map = _script_maps(args.kind, args.source, args.target)
             problems.extend(check_script(source_map, target_map, args.locale or args.target))
+        if args.kind == "android":
+            problems.extend(check_folder_script(_read(args.source), _read(args.target),
+                                                args.locale or args.target))
     except (OSError, ValueError, ET.ParseError) as exc:
         print("l10n-guard: %s" % exc, file=sys.stderr)
         return 2

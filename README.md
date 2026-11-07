@@ -154,6 +154,28 @@ exactly these.
   ([results](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/hanzi-leak/RESULTS.md)) and 32 of 35 flagged store-listing lines
   ([results](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/hanzi-meta/RESULTS.md)) to be real defects. Mainland
   vocabulary written in Traditional characters is not checked.
+- **A translation in the wrong folder, and folder names that aren't languages** (0.18.0, `android`
+  kind, codes `folder-script` and `locale-code`): Android picks a `values-<code>` folder by the
+  phone's language. When at least 10 translated strings of a folder (strings that differ from the
+  source) are written in another script and outnumber those in the folder language's own script,
+  as with Welsh text in `values-ar` or Japanese in `values-be`, that is a `folder-script`
+  warning: another language's translation is probably filed under the wrong code. Latin text that
+  mostly reuses the source's words is reported as source text left untranslated instead. The rule
+  covers only languages written in one script (Cyrillic, Greek, Armenian, Hebrew, Arabic, the
+  Indic scripts, Thai, Lao, Georgian, Korean, Ethiopic, Khmer, Japanese and Chinese, among others),
+  only folders without a script tag (`values-b+kk+Latn` is fine), and leaves out languages with
+  several scripts in everyday use (Serbian, Uzbek, Azerbaijani, Punjabi, Kurdish, Mongolian,
+  Sindhi). A wrong language in the same script, such as Hungarian in `values-ast`, is invisible
+  to it. A folder named with a code that is not a language, mostly a country code (`values-ua`,
+  `values-cz`, `values-cn`, `values-jp`, `values-dk`), is a `locale-code` warning that names the
+  right code, because no phone language setting selects it (only an in-app language picker that
+  asks for that code itself would). The locale is read from the target's path, or given with
+  `--locale`. The rule comes from a pre-registered census of F-Droid apps, where hand checks by AI
+  agents found 26 of 32 flagged folders to be real defects
+  ([results](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/locale-mismatch/RESULTS.md)).
+  Before release it flagged exactly the 5 known folders among the 73 of Thunderbird for Android's
+  message-list module, and no other
+  ([check](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/l10n-guard-0180/RESULTS.md)).
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -252,7 +274,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.17.0
+- uses: munimtechnologies/l10n-guard@v0.18.0
   with:
     kind: json
     source: locales/en.json
@@ -263,17 +285,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.17.0
+- uses: munimtechnologies/l10n-guard@v0.18.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.17.0
+- uses: munimtechnologies/l10n-guard@v0.18.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.17.0
+- uses: munimtechnologies/l10n-guard@v0.18.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -282,7 +304,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.17.0
+- uses: munimtechnologies/l10n-guard@v0.18.0
   with:
     kind: dir
     source: docs
@@ -295,7 +317,7 @@ A whole translated folder:
 `l10n-guard` command (pip needs Python 3.9 or newer for this; the file itself still runs on 3.8):
 
 ```sh
-pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.17.0"
+pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.18.0"
 l10n-guard android values/strings.xml values-fr/strings.xml
 ```
 
@@ -308,7 +330,7 @@ whole locale folder.
 ```yaml
 repos:
   - repo: https://github.com/munimtechnologies/l10n-guard
-    rev: v0.17.0
+    rev: v0.18.0
     hooks:
       - id: l10n-guard
         name: l10n-guard (de)
