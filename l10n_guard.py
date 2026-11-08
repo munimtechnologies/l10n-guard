@@ -24,6 +24,7 @@ anything.
   python3 l10n_guard.py rails      config/locales/en.yml  config/locales/ja.yml
   python3 l10n_guard.py symfony    translations/messages.en.yaml  translations/messages.ja.xlf
   python3 l10n_guard.py text       en-US/full_description.txt  zh-TW/full_description.txt
+  python3 l10n_guard.py locale-config  path/to/android/project
 
 Exit code 0 = no errors, 1 = errors found, 2 = bad input.
 Made by MV2 of Munim, Inc. with AI agents. Licensed under the Apache License,
@@ -40,7 +41,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.18.0"
+__version__ = "0.19.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -2963,6 +2964,543 @@ def check_folder_script(source_text, target_text, locale):
     return []
 
 
+# --- 0.19.0: locale-config -------------------------------------------------------
+# Since Android 13 a user can pick a language for one app in the system settings, which
+# offers only the languages in the app's locale config: a res/xml file named by
+# android:localeConfig in the manifest. A hand-written list drifts from the translations
+# the app ships: a translated language it leaves out is never offered (orphan), and a
+# language it names without a translation is offered and shows the default language
+# (phantom). The rule comes from a pre-registered census of F-Droid apps, where 12 of 16
+# hand-checked drifting lists were real; the three method gaps found there (build-time
+# language filters, a default language that is not English, @string entries) are handled:
+# https://github.com/munimtechnologies/android-translation-crash-census/blob/main/locale-config/RESULTS.md
+
+LOCALE_CONFIG_SUBSTANTIAL = 0.5
+_LC_ISO639_1 = frozenset("""
+aa ab ae af ak am an ar as av ay az ba be bg bi bm bn bo br bs ca ce ch co cr cs cu cv cy da de dv
+dz ee el en eo es et eu fa ff fi fj fo fr fy ga gd gl gn gu gv ha he hi ho hr ht hu hy hz ia id ie
+ig ii ik io is it iu ja jv ka kg ki kj kk kl km kn ko kr ks ku kv kw ky la lb lg li ln lo lt lu lv
+mg mh mi mk ml mn mr ms mt my na nb nd ne ng nl nn no nr nv ny oc oj om or os pa pi pl ps pt qu rm
+rn ro ru rw sa sc sd se sg si sk sl sm sn so sq sr ss st su sv sw ta te tg th ti tk tl tn to tr ts
+tt tw ty ug uk ur uz ve vi vo wa wo xh yi yo za zh zu
+""".split())
+_LC_LEGACY = frozenset(["in", "iw", "ji", "mo", "sh", "bh"])
+_LC_ALIAS = {"iw": "he", "in": "id", "ji": "yi"}
+# Folders never read: build outputs, tests, tool caches, hidden folders.
+_LC_SKIP = frozenset(["build", "test", "androidTest", "testFixtures", "sharedTest",
+                      "node_modules"])
+_LC_DIR_RE = re.compile(
+    r"^values-(?:([a-z]{2,3})(?:-r([A-Z]{2}|[0-9]{3}))?|b\+([a-zA-Z]{2,3})((?:\+[A-Za-z0-9]+)*))$")
+_LC_PSEUDO = frozenset([("en", "XA"), ("ar", "XB")])
+_LC_ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
+_LC_MANIFEST_RE = re.compile(r'android:localeConfig\s*=\s*"@xml/([A-Za-z0-9_.]+)"')
+_LC_GENERATE_RE = re.compile(r"\bgenerateLocaleConfig\s*(?:=\s*)?true\b")
+_LC_UNQUALIFIED_RE = re.compile(r"^\s*unqualifiedResLocale\s*=\s*([A-Za-z0-9_+\-]+)", re.M)
+_LC_FILTER_RE = re.compile(r"\b(localeFilters|resConfigs?|resourceConfigurations)\b")
+_LC_LITERAL_RE = re.compile(r'"([^"\\\n]*)"|\'([^\'\\\n]*)\'')
+_LC_FILTER_TAG_RE = re.compile(r"^(?:b\+)?[a-zA-Z]{2,3}(?:[-_+][A-Za-z0-9]{1,8})*$")
+_LC_FILTER_FUNCS = frozenset(["listOf", "setOf", "arrayOf", "mutableListOf", "mutableSetOf",
+                              "hashSetOf", "addAll", "add", "plus"])
+_LC_DENSITIES = frozenset(["nodpi", "ldpi", "mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi",
+                           "tvdpi", "anydpi"])
+_LC_FOLDER_TAG_RE = re.compile(r"^([a-z]{2,3})-r([A-Z]{2})$")
+_LC_WORD_RE = re.compile(r"[^\W\d_]+")
+# Languages also written in a script that FOLDER_SCRIPTS leaves out for them.
+_LC_EXTRA_SCRIPT_LANGS = {"Cyrillic": ("sr", "uz", "az", "mn", "tk"),
+                          "Arabic": ("ku", "sd", "pa", "az", "ks")}
+# A few frequent words per language, only to name a Latin-script default language.
+_LC_STOPWORDS = {
+    "en": frozenset("the and you your with this that are not from have will".split()),
+    "fr": frozenset("le les des une est pour avec vous votre pas sur dans cette sont".split()),
+    "de": frozenset("der die das und ist nicht mit sie ein eine auf wird werden bitte".split()),
+    "es": frozenset("el los las del por puede usted cuando".split()),
+    "it": frozenset("il gli della per non sono questo questa essere nel alla".split()),
+    "pt": frozenset("os uma você pode ser seu sua com".split()),
+    "nl": frozenset("het een van niet voor met zijn wordt deze uw".split()),
+    "pl": frozenset("nie jest się że dla może lub aby".split()),
+    "sv": frozenset("och att det är för inte med som".split()),
+}
+
+
+def _lc_lang(lang):
+    lang = lang.lower()
+    return _LC_ALIAS.get(lang, lang)
+
+
+def _lc_keep(path):
+    return not any(p in _LC_SKIP or p.startswith(".") for p in path.split("/")[:-1])
+
+
+def _lc_parse_dir(name):
+    """Language of a values-* folder name, or None when it is not a translation folder."""
+    m = _LC_DIR_RE.match(name)
+    if not m:
+        return None
+    if m.group(3):
+        lang = m.group(3).lower()
+        subs = [x for x in m.group(4).split("+") if x]
+        region = next((x.upper() for x in subs
+                       if (len(x) == 2 and x.isalpha()) or (len(x) == 3 and x.isdigit())), None)
+    else:
+        lang, region = m.group(1), m.group(2)
+        if lang == "car":
+            return None
+    if (lang, region) in _LC_PSEUDO:
+        return None
+    return _lc_lang(lang)
+
+
+def _lc_not_language(lang):
+    return lang in LOCALE_CODE_FIXES or (len(lang) == 2 and lang not in _LC_ISO639_1
+                                         and lang not in _LC_LEGACY)
+
+
+def _lc_tag_lang(tag):
+    """Language of a locale-config name ('en-US', 'zh-Hans-CN', 'pt_BR', 'b+sr+Latn')."""
+    t = (tag or "").strip()
+    if t.startswith("b+"):
+        t = t[2:]
+    first = re.split(r"[-_+]", t, maxsplit=1)[0]
+    return _lc_lang(first) if first else ""
+
+
+def _lc_module(path):
+    """Module of a res folder or manifest path: the part before the last 'src' folder."""
+    parts = path.split("/")
+    head = parts[:-1]
+    if "src" in head:
+        i = len(head) - 1 - head[::-1].index("src")
+        return "/".join(parts[:i])
+    return "/".join(head)
+
+
+def _lc_uncomment(text):
+    """A Gradle (Groovy or Kotlin) file without its // and /* */ comments. Text inside
+    quotes is kept, so "**/*.so" or "https://..." in a string is not taken for a comment."""
+    out, i, n, quote = [], 0, len(text), None
+    while i < n:
+        c = text[i]
+        if quote:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if c == quote or c == "\n":
+                quote = None
+            i += 1
+        elif c in "\"'":
+            quote = c
+            out.append(c)
+            i += 1
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            end = n if j < 0 else j + 2
+            out.append("\n" * text.count("\n", i, end) or " ")
+            i = end
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _lc_strings(data, default):
+    """{name: text} of the string, plurals and string-array items of a values XML file
+    (bytes). In the default folder items marked translatable="false" are left out; in a
+    translation, empty items are. None if the file does not parse."""
+    try:
+        root = ET.fromstring(data)
+    except (ET.ParseError, ValueError):
+        return None
+    out = {}
+    if root.tag != "resources":
+        return out
+    for e in root:
+        if e.tag not in ("string", "plurals", "string-array"):
+            continue
+        name = e.get("name")
+        if not name or (default and e.get("translatable") == "false"):
+            continue
+        text = " ".join("".join(e.itertext()).split())
+        if not default and not text:
+            continue
+        out[name] = text
+    return out
+
+
+def _lc_values_files(paths):
+    files = {}
+    for p in paths:
+        parts = p.split("/")
+        if len(parts) < 3 or parts[-3] != "res" or not parts[-1].endswith(".xml"):
+            continue
+        if parts[-2] != "values" and not parts[-2].startswith("values-"):
+            continue
+        files.setdefault(("/".join(parts[:-2]), parts[-2]), set()).add(parts[-1])
+    return files
+
+
+def _lc_coverage(paths, read):
+    """Returns (folders, files, strings): folders is {res_dir: {"default": n, "locales":
+    {folder: (lang, translated)}}} for every translation folder that shares a file name with
+    its values folder, empty ones included."""
+    files = _lc_values_files(paths)
+    cache = {}
+
+    def strings(res_dir, d, fn, default):
+        k = (res_dir, d, fn)
+        if k not in cache:
+            data = read("%s/%s/%s" % (res_dir, d, fn))
+            cache[k] = (_lc_strings(data, default) if data is not None else None) or {}
+        return cache[k]
+
+    folders = {}
+    for (res_dir, d), names in sorted(files.items()):
+        if d == "values":
+            continue
+        lang = _lc_parse_dir(d)
+        default_names = files.get((res_dir, "values"), set())
+        shared = sorted(names & default_names)
+        if not lang or not shared:
+            continue
+        if res_dir not in folders:
+            folders[res_dir] = {"default": sum(len(strings(res_dir, "values", fn, True))
+                                               for fn in sorted(default_names)), "locales": {}}
+        n = sum(len(set(strings(res_dir, d, fn, False)) & set(strings(res_dir, "values", fn, True)))
+                for fn in shared)
+        folders[res_dir]["locales"][d] = (lang, n)
+    return folders, files, strings
+
+
+def _lc_is_build_file(path):
+    parts = path.split("/")
+    name = parts[-1]
+    if name.endswith((".gradle", ".gradle.kts")):
+        return True
+    return (name.endswith((".kt", ".kts", ".groovy"))
+            and any(p in ("buildSrc", "build-logic") for p in parts[:-1]))
+
+
+def _lc_filter_statements(text):
+    """[(keyword, tags, readable)] for each localeFilters / resConfigs /
+    resourceConfigurations statement of a Gradle file. readable is False when the statement
+    uses anything but string literals (a variable, "auto", a function of its own)."""
+    text = _lc_uncomment(text)
+    found = []
+    for m in _LC_FILTER_RE.finditer(text):
+        i = j = m.end()
+        depth = 0
+        while j < len(text):
+            c = text[j]
+            if c in "([":
+                depth += 1
+            elif c in ")]":
+                depth -= 1
+                if depth < 0:
+                    break
+            elif c == "\n" and depth <= 0:
+                so_far = text[i:j].strip()
+                if so_far and not so_far.endswith((",", "=", "+")):
+                    break
+            j += 1
+        body = text[i:j]
+        tags, readable = [], True
+        for lm in _LC_LITERAL_RE.finditer(body):
+            s = lm.group(1) if lm.group(1) is not None else lm.group(2)
+            if s in _LC_DENSITIES:
+                continue
+            if _LC_FILTER_TAG_RE.match(s):
+                tags.append(s)
+            else:
+                readable = False
+        rest = _LC_LITERAL_RE.sub(" ", body)
+        if not tags or any(w not in _LC_FILTER_FUNCS for w in re.findall(r"[A-Za-z_]\w*", rest)):
+            readable = False
+        found.append((m.group(1), tags, readable))
+    return found
+
+
+def _lc_own_build_files(mod):
+    prefix = mod + "/" if mod else ""
+    return (prefix + "build.gradle", prefix + "build.gradle.kts")
+
+
+def _lc_filters(mod, gradle):
+    """(filter, where): filter is None when no build file that applies to the module has a
+    language filter, "unknown" when one cannot be read (a variable, or a filter outside the
+    module's own build file), else the frozenset of languages it keeps."""
+    own = _lc_own_build_files(mod)
+    langs, readable, where = set(), True, []
+    for path in sorted(gradle):
+        name = path.split("/")[-1]
+        if name in ("settings.gradle", "settings.gradle.kts"):
+            continue
+        if name in ("build.gradle", "build.gradle.kts") and path not in own and "/" in path:
+            continue  # another module's build file
+        statements = _lc_filter_statements(gradle[path])
+        if not statements:
+            continue
+        where.append(path)
+        for _, tags, ok in statements:
+            if path not in own or not ok:
+                readable = False
+            langs.update(_lc_tag_lang(t) for t in tags)
+    if not where:
+        return None, where
+    return (frozenset(langs) if readable else "unknown"), where
+
+
+def _lc_guess_latin(texts):
+    counts = {}
+    for text in texts:
+        for w in _LC_WORD_RE.findall(text.lower()):
+            for lang, words in _LC_STOPWORDS.items():
+                if w in words:
+                    counts[lang] = counts.get(lang, 0) + 1
+    top = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    if top and top[0][1] >= 5 and (len(top) == 1 or top[0][1] >= 2 * top[1][1]):
+        return top[0][0]
+    return None
+
+
+def _lc_default(mod, paths, files, strings, read):
+    """(languages, how): the languages the module's default values/ strings may be in. An
+    empty set means they are not English and the language could not be named."""
+    for p in paths:
+        if (p.split("/")[-1] == "resources.properties"
+                and _lc_module(p.rsplit("/", 1)[0]) == mod):
+            data = read(p)
+            m = _LC_UNQUALIFIED_RE.search(data.decode("utf-8", "replace")) if data else None
+            if m and _lc_tag_lang(m.group(1)):
+                return frozenset([_lc_tag_lang(m.group(1))]), "resources.properties"
+    default, english = {}, {}
+    for (res_dir, d), names in sorted(files.items()):
+        if _lc_module(res_dir) != mod:
+            continue
+        if d == "values":
+            for fn in sorted(names):
+                for k, v in strings(res_dir, d, fn, True).items():
+                    default[(res_dir, fn, k)] = v
+        elif _lc_parse_dir(d) == "en":
+            for fn in sorted(names):
+                for k, v in strings(res_dir, d, fn, False).items():
+                    english.setdefault((res_dir, fn, k), v)
+    lettered, by_script = 0, {}
+    for text in default.values():
+        scripts = _fs_scripts(_fs_plain(text))
+        if not scripts:
+            continue
+        lettered += 1
+        for s in scripts - {"Latin"}:
+            by_script[s] = by_script.get(s, 0) + 1
+    if lettered and by_script.get("Kana", 0) * 2 > lettered:
+        return frozenset(["ja"]), "script"
+    top = sorted(by_script.items(), key=lambda kv: (-kv[1], kv[0]))
+    if top and top[0][1] * 2 > lettered:
+        script = top[0][0]
+        langs = set(l for l, s in FOLDER_SCRIPTS.items() if script in s)
+        langs.update(_LC_EXTRA_SCRIPT_LANGS.get(script, ()))
+        return frozenset(langs), "script"
+    shared = [k for k in english if k in default]
+    differ = sum(1 for k in shared if english[k] != default[k])
+    if len(shared) >= 10 and 2 * differ >= len(shared):
+        guess = _lc_guess_latin(default.values())
+        return (frozenset([guess]) if guess else frozenset()), "values-en differs"
+    return frozenset(["en"]), "assumed"
+
+
+def _lc_read_list(data):
+    if data is None:
+        return None
+    try:
+        root = ET.fromstring(data)
+    except (ET.ParseError, ValueError):
+        return None
+    if root.tag != "locale-config":
+        return None
+    return [e.get(_LC_ANDROID_NS + "name", "").strip() for e in root.iter("locale")]
+
+
+def _lc_one(manifest, name, paths, read, folders, files, strings, gradle, translated, present):
+    mod = _lc_module(manifest)
+    rep = {"manifest": manifest, "module": mod, "xml": "", "status": "checked", "listed": [],
+           "default": "", "default_how": "", "filters": "", "orphans": "checked",
+           "phantoms": "checked", "problems": []}
+    found = [p for p in paths if p.endswith("/res/xml/%s.xml" % name) or p == "res/xml/%s.xml" % name]
+    same = [p for p in found if _lc_module(p.rsplit("/", 2)[0]) == mod]
+    pick = same or found
+    if not pick:
+        rep["status"] = "skipped: list file not found"
+        return rep
+    rel = rep["xml"] = pick[0]
+    listed = _lc_read_list(read(rel))
+    if listed is None:
+        rep["status"] = "skipped: list does not parse"
+        return rep
+    rep["listed"] = listed
+    if any(_LC_GENERATE_RE.search(_lc_uncomment(gradle.get(p, "")))
+           for p in _lc_own_build_files(mod)):
+        rep["status"] = "skipped: the build generates the list"
+        return rep
+    if any(name in text for text in gradle.values()):
+        rep["status"] = "skipped: a build file names the list"
+        return rep
+    tags = [t for t in listed if t and not t.startswith("@")]
+    if not tags:
+        rep["status"] = "skipped: no language tags"
+        return rep
+    default, rep["default_how"] = _lc_default(mod, paths, files, strings, read)
+    rep["default"] = " ".join(sorted(default)) or "unknown"
+    filt, where = _lc_filters(mod, gradle)
+    rep["filters"] = ("none" if filt is None else filt if filt == "unknown"
+                      else " ".join(sorted(filt)))
+    problems = rep["problems"]
+    listed_langs, bad = set(), set()
+    for t in tags:
+        lang = _lc_tag_lang(t)
+        if not lang:
+            continue
+        listed_langs.add(lang)
+        folder_style = _LC_FOLDER_TAG_RE.match(t)
+        if _lc_not_language(lang):
+            bad.add(lang)
+            fix = LOCALE_CODE_FIXES.get(lang)
+            problems.append(issue(
+                WARNING, "locale-config-code",
+                "%s lists '%s', which is not a language code%s, so Android's per-app language "
+                "setting cannot match it to a translation"
+                % (rel, t, " (the language code is %s)" % fix if fix else ""), lang))
+        elif folder_style:
+            problems.append(issue(
+                WARNING, "locale-config-tag",
+                "%s lists '%s' in resource-folder spelling; locale-config names are language "
+                "tags, such as '%s-%s'" % (rel, t, folder_style.group(1), folder_style.group(2)),
+                lang))
+    if not default:
+        rep["phantoms"] = "skipped: default language not English and not identified"
+    else:
+        for lang in sorted(listed_langs - bad - default):
+            kept = translated.get(lang, set())
+            if kept and (not isinstance(filt, frozenset) or lang in filt):
+                continue
+            if kept:
+                why = ("the build's language filter (%s) leaves its translation out of the app"
+                       % ", ".join(where))
+            elif lang in present:
+                why = ("its %s strings files have no translated strings"
+                       % ", ".join(sorted(present[lang])))
+            else:
+                why = "no values-%s folder in the project has translated strings" % lang
+            problems.append(issue(
+                WARNING, "locale-config-phantom",
+                "%s lists '%s', but %s, so Android's per-app language setting offers it and "
+                "shows the default language instead" % (rel, lang, why), lang))
+    if filt == "unknown":
+        rep["orphans"] = "skipped: language filter not readable (%s)" % ", ".join(where)
+        return rep
+    den, per_dir, lang_of = 0, {}, {}
+    for res_dir in sorted(folders):
+        if _lc_module(res_dir) != mod:
+            continue
+        den += folders[res_dir]["default"]
+        for d, (lang, n) in folders[res_dir]["locales"].items():
+            per_dir[d] = per_dir.get(d, 0) + n
+            lang_of[d] = lang
+    best = {}
+    for d in sorted(per_dir):
+        if per_dir[d] > best.get(lang_of[d], (0, ""))[0]:
+            best[lang_of[d]] = (per_dir[d], d)
+    for lang in sorted(best):
+        n, d = best[lang]
+        if lang in listed_langs or lang in default or _lc_not_language(lang):
+            continue
+        if filt is not None and lang not in filt:
+            continue
+        if not den or n < LOCALE_CONFIG_SUBSTANTIAL * den:
+            continue
+        problems.append(issue(
+            WARNING, "locale-config-orphan",
+            "%s has %d of this module's %d strings translated, but %s does not list '%s', so "
+            "Android's per-app language setting never offers it" % (d, n, den, rel, lang), lang))
+    return rep
+
+
+def locale_config_lists(paths, read):
+    """One report per android:localeConfig declaration. paths: every file of an Android
+    project, relative and '/'-separated; read(path) returns its bytes or None."""
+    paths = sorted(p.replace("\\", "/") for p in paths)
+    paths = [p for p in paths if _lc_keep(p)]
+    folders, files, strings = _lc_coverage(paths, read)
+    gradle = {}
+    for p in paths:
+        if _lc_is_build_file(p):
+            data = read(p)
+            if data is not None:
+                gradle[p] = data.decode("utf-8", "replace")
+    translated, present = {}, {}
+    for res_dir in folders:
+        for d, (lang, n) in folders[res_dir]["locales"].items():
+            present.setdefault(lang, set()).add(d)
+            if n:
+                translated.setdefault(lang, set()).add(d)
+    reports = []
+    for p in paths:
+        if p.split("/")[-1] != "AndroidManifest.xml":
+            continue
+        data = read(p)
+        if data is None:
+            continue
+        m = _LC_MANIFEST_RE.search(re.sub(r"<!--.*?-->", "", data.decode("utf-8", "replace"),
+                                          flags=re.S))
+        if m:
+            reports.append(_lc_one(p, m.group(1), paths, read, folders, files, strings, gradle,
+                                   translated, present))
+    return reports
+
+
+def check_locale_config(paths, read):
+    """Warnings for every hand-written per-app language list (android:localeConfig) of an
+    Android project: locale-config-orphan (a translation at least half done that the list
+    leaves out), locale-config-phantom (a listed language with no translated strings, or
+    one the build's language filter drops), locale-config-code (a listed code that is not a
+    language, such as dk) and locale-config-tag (pt-rBR instead of pt-BR). Languages are
+    compared, not regions or scripts. Returns (problems, stats)."""
+    reports = locale_config_lists(paths, read)
+    checked = [r for r in reports if r["status"] == "checked"]
+    stats = {"lists checked": len(checked),
+             "lists skipped": len(reports) - len(checked),
+             "orphan checks skipped": sum(1 for r in checked if r["orphans"] != "checked"),
+             "phantom checks skipped": sum(1 for r in checked if r["phantoms"] != "checked")}
+    return [p for r in reports for p in r["problems"]], stats
+
+
+def check_locale_config_dir(root):
+    """check_locale_config() on a project or module folder."""
+    if not os.path.isdir(root):
+        raise OSError("not a folder: %s" % root)
+    paths = []
+    for base, dirs, names in os.walk(root):
+        rel = os.path.relpath(base, root).replace(os.sep, "/")
+        rel = "" if rel == "." else rel + "/"
+        dirs[:] = sorted(d for d in dirs if d not in _LC_SKIP and not d.startswith("."))
+        paths.extend(rel + n for n in names)
+
+    def read(p):
+        fp = os.path.join(root, *p.split("/"))
+        try:
+            if os.path.getsize(fp) > 2000000:
+                return None
+            with open(fp, "rb") as fh:
+                return fh.read()
+        except OSError:
+            return None
+
+    return check_locale_config(paths, read)
+
+
 def _script_maps(kind, source_path, target_path):
     """{key: text} of both files of a kind in _SCRIPT_KINDS, for check_script."""
     readers = {
@@ -3016,6 +3554,8 @@ def run(argv=None):
     for kind in ("po", "xliff", "xcstrings", "qt"):
         p = sub.add_parser(kind)
         p.add_argument("file")
+    p = sub.add_parser("locale-config")
+    p.add_argument("dir")
     args = parser.parse_args(argv)
 
     stats = None
@@ -3048,6 +3588,8 @@ def run(argv=None):
         elif args.kind == "text":
             problems = check_text(_read(args.source), _read(args.target),
                                   args.locale or args.target)
+        elif args.kind == "locale-config":
+            problems, stats = check_locale_config_dir(args.dir)
         elif args.kind == "xliff":
             problems, stats = check_xliff(_read(args.file))
         elif args.kind == "xcstrings":

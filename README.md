@@ -176,6 +176,41 @@ exactly these.
   Before release it flagged exactly the 5 known folders among the 73 of Thunderbird for Android's
   message-list module, and no other
   ([check](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/l10n-guard-0180/RESULTS.md)).
+- **Android per-app language lists** (0.19.0, new `locale-config` kind, codes
+  `locale-config-orphan`, `locale-config-phantom`, `locale-config-code`, `locale-config-tag`):
+  since Android 13 a user can pick a language for one app in the system settings, but Android
+  offers only the languages in the app's locale config, the `res/xml` file that
+  `android:localeConfig` names in the manifest. A hand-written list drifts from the translations
+  the app ships. `l10n-guard locale-config <project folder>` finds every manifest that names such a
+  list and compares the list with the module's `values-*` folders:
+  - `locale-config-orphan`: a translated folder with at least half of the module's strings that
+    the list leaves out, so the setting never offers that language;
+  - `locale-config-phantom`: a listed language with no translated strings, or one the build's
+    `localeFilters` / `resConfigs` / `resourceConfigurations` drops, so the setting offers it and
+    the app shows its default language;
+  - `locale-config-code`: a listed code that is not a language (`dk`, with the right code named);
+  - `locale-config-tag`: a resource-folder spelling such as `pt-rBR` instead of `pt-BR`.
+
+  Languages are compared, not regions or scripts; `iw`/`he`, `in`/`id` and `ji`/`yi` count as the
+  same language. A list the build generates (`generateLocaleConfig`) or that a build file names is
+  skipped, an unreadable language filter skips the orphan check, and a default language that is
+  not English and can't be identified skips the phantom check; the stats line says which. All four
+  are warnings, so use `--strict` to fail a CI step or a commit on them.
+
+  Android Lint already warns about part of this: its `UnusedTranslation` check (Android Gradle
+  plugin 7.4 and later) reports translated folders the locale config leaves out, as a warning
+  during a lint run. What `locale-config` adds is phantom languages, non-language codes, awareness
+  of the build's language filters, and a check that needs no Gradle build, so it runs in a
+  pre-commit hook or a plain Python step.
+
+  The rule and its predictions were published before the release, and all six held: on 96
+  held-out open-source apps with drifting lists, hand checks by AI agents found a real finding in
+  14 of 16 sampled apps and 31 of 36 sampled findings to be real
+  ([results](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/l10n-guard-0190/RESULTS.md),
+  [census](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/locale-config/RESULTS.md)).
+  Known limits from that test: **ignore phantom warnings in apps whose text isn't in `res/`**
+  (Flutter `.arb`, React Native, web-view apps), and know that a folder's size counts every string
+  it holds, so a folder of untranslated English copies can still be reported as an orphan.
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -246,6 +281,7 @@ python3 l10n_guard.py html       secure-ollama.html de/secure-ollama.html
 python3 l10n_guard.py md         README.md README.ja.md
 python3 l10n_guard.py dir        site site/ja
 python3 l10n_guard.py text       fastlane/metadata/android/en-US/full_description.txt fastlane/metadata/android/zh-TW/full_description.txt
+python3 l10n_guard.py locale-config  .   # an Android project folder: per-app language lists
 python3 l10n_guard.py --locale zh-Hant json en.json zh.json   # when the path doesn't name the language
 python3 l10n_guard.py --json --strict json en.json fr.json   # options go before the kind
 ```
@@ -274,7 +310,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.18.0
+- uses: munimtechnologies/l10n-guard@v0.19.0
   with:
     kind: json
     source: locales/en.json
@@ -285,17 +321,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.18.0
+- uses: munimtechnologies/l10n-guard@v0.19.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.18.0
+- uses: munimtechnologies/l10n-guard@v0.19.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.18.0
+- uses: munimtechnologies/l10n-guard@v0.19.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -304,11 +340,20 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.18.0
+- uses: munimtechnologies/l10n-guard@v0.19.0
   with:
     kind: dir
     source: docs
     target: docs/de
+```
+
+The Action takes a source and a target, so the `locale-config` kind runs as a plain step for now:
+
+```yaml
+- uses: actions/checkout@v4
+- run: |
+    pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.19.0"
+    l10n-guard --strict locale-config .
 ```
 
 ## Install with pip or pre-commit
@@ -317,7 +362,7 @@ A whole translated folder:
 `l10n-guard` command (pip needs Python 3.9 or newer for this; the file itself still runs on 3.8):
 
 ```sh
-pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.18.0"
+pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.19.0"
 l10n-guard android values/strings.xml values-fr/strings.xml
 ```
 
@@ -330,7 +375,7 @@ whole locale folder.
 ```yaml
 repos:
   - repo: https://github.com/munimtechnologies/l10n-guard
-    rev: v0.18.0
+    rev: v0.19.0
     hooks:
       - id: l10n-guard
         name: l10n-guard (de)

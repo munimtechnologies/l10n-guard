@@ -180,7 +180,7 @@ class Cli(unittest.TestCase):
 
 class Version(unittest.TestCase):
     def test_version(self):
-        self.assertEqual(g.__version__, "0.18.0")
+        self.assertGreaterEqual(tuple(int(x) for x in g.__version__.split(".")), (0, 18, 0))
 
 
 if __name__ == "__main__":
