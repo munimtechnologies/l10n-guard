@@ -42,7 +42,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.21.0"
+__version__ = "0.21.1"
 
 ERROR = "error"
 WARNING = "warning"
@@ -3754,7 +3754,8 @@ def check_linguas(paths, read):
         listed = _lg_meson_linguas(text) if build == "meson" else _lg_gnu_linguas(text)
         listed_set = set(listed)
         rel = prefix + "LINGUAS"
-        tool = "Meson" if build == "meson" else "gettext's build rules"
+        tool = ("Meson never compiles or installs it" if build == "meson"
+                else "gettext's build rules never compile or install it")
         spelled = {}
         for t in listed:
             spelled.setdefault(t.lower().replace("-", "_"), t)
@@ -3772,13 +3773,17 @@ def check_linguas(paths, read):
             if same:
                 fix = ("%s lists '%s', and the name must match the file name exactly"
                        % (rel, same))
+            elif "-" in stem:
+                gt = stem.replace("-", "_")
+                fix = ("gettext locale names use '_', so a catalog installed as '%s' is never "
+                       "looked up; rename %s%s to %s%s.po and add '%s' to %s if the "
+                       "translation is ready" % (stem, prefix, po[stem], prefix, gt, gt, rel))
             else:
                 fix = "add '%s' to %s if the translation is ready" % (stem, rel)
             problems.append(issue(
                 WARNING, "linguas-unlisted",
-                "%s%s has %d of %d messages translated, but %s does not list '%s', so %s never "
-                "compiles or installs it; %s" % (prefix, po[stem], done, total, rel, stem, tool,
-                                                 fix), stem))
+                "%s%s has %d of %d messages translated, but %s does not list '%s', so %s; %s"
+                % (prefix, po[stem], done, total, rel, stem, tool, fix), stem))
         for lang in sorted(listed_set):
             if lang not in po:
                 problems.append(issue(

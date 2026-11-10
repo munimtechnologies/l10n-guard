@@ -4,7 +4,7 @@ description: Check a translated file against its source for the mistakes that br
 license: Apache-2.0
 metadata:
   author: MV2 of Munim, Inc.
-  version: "0.21.0"
+  version: "0.21.1"
   source: https://github.com/munimtechnologies/l10n-guard
 ---
 
@@ -22,7 +22,7 @@ Run it on every translation file you create or change, before you commit or open
 ## Steps
 
 1. **Get the tool** (pinned release; pick one):
-   - `pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.21.0"` gives an
+   - `pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.21.1"` gives an
      `l10n-guard` command (Python 3.9+).
    - Or use the single file `l10n_guard.py` from that release with `python3 l10n_guard.py ...`
      (Python 3.8+). If the project already vendors `l10n_guard.py` or runs the GitHub Action or
@@ -102,11 +102,12 @@ Run it on every translation file you create or change, before you commit or open
 
 ## CI options (when the user wants it enforced)
 
-- GitHub Action: `uses: munimtechnologies/l10n-guard@v0.21.0` with `kind`, `source`, `target`
-  (single-file kinds `po`, `xliff`, `xcstrings`, `qt` take only `target`). For `locale-config`,
-  use a plain step instead: `pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.21.0"`
+- GitHub Action: `uses: munimtechnologies/l10n-guard@v0.21.1` with `kind`, `source`, `target`
+  (single-file kinds `po`, `xliff`, `xcstrings`, `qt` and the project-folder kinds
+  `locale-config` and `linguas` take only `target`). Or use a plain step:
+  `pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.21.1"`
   then `l10n-guard --strict locale-config .` (the `linguas` kind runs the same way).
-- pre-commit: repo `https://github.com/munimtechnologies/l10n-guard`, `rev: v0.21.0`, hook id
+- pre-commit: repo `https://github.com/munimtechnologies/l10n-guard`, `rev: v0.21.1`, hook id
   `l10n-guard`, `args: [json, locales/en.json, locales/de.json]`, one hook entry per pair (or the
   `dir` kind for a folder).
 

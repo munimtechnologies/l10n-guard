@@ -331,7 +331,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.21.0
+- uses: munimtechnologies/l10n-guard@v0.21.1
   with:
     kind: json
     source: locales/en.json
@@ -342,17 +342,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.21.0
+- uses: munimtechnologies/l10n-guard@v0.21.1
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.21.0
+- uses: munimtechnologies/l10n-guard@v0.21.1
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.21.0
+- uses: munimtechnologies/l10n-guard@v0.21.1
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -361,19 +361,30 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.21.0
+- uses: munimtechnologies/l10n-guard@v0.21.1
   with:
     kind: dir
     source: docs
     target: docs/de
 ```
 
-The Action takes a source and a target, so the `locale-config` and `linguas` kinds run as a plain step for now:
+Project-folder kinds (`locale-config`, `linguas`) take only `target` (since 0.21.1):
+
+```yaml
+- uses: actions/checkout@v4
+- uses: munimtechnologies/l10n-guard@v0.21.1
+  with:
+    kind: linguas
+    target: .
+    strict: "true"
+```
+
+Or run them as a plain step:
 
 ```yaml
 - uses: actions/checkout@v4
 - run: |
-    pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.21.0"
+    pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.21.1"
     l10n-guard --strict locale-config .
     l10n-guard --strict linguas .
 ```
@@ -384,7 +395,7 @@ The Action takes a source and a target, so the `locale-config` and `linguas` kin
 `l10n-guard` command (pip needs Python 3.9 or newer for this; the file itself still runs on 3.8):
 
 ```sh
-pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.21.0"
+pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.21.1"
 l10n-guard android values/strings.xml values-fr/strings.xml
 ```
 
@@ -397,7 +408,7 @@ whole locale folder.
 ```yaml
 repos:
   - repo: https://github.com/munimtechnologies/l10n-guard
-    rev: v0.21.0
+    rev: v0.21.1
     hooks:
       - id: l10n-guard
         name: l10n-guard (de)

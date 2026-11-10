@@ -6,14 +6,14 @@ branding:
   color: blue
 inputs:
   kind:
-    description: "html, md, json, properties, arb, android, strings, resx, laravel, rails, symfony, dir (a whole locale folder against its source folder), or a single-file format: po, xliff, xcstrings, qt"
+    description: "html, md, json, properties, arb, android, strings, resx, laravel, rails, symfony, dir (a whole locale folder against its source folder), a single-file format: po, xliff, xcstrings, qt, or a project folder: locale-config, linguas"
     required: true
   source:
-    description: "Source-language file or folder (not used for po, xliff, xcstrings, qt)"
+    description: "Source-language file or folder (not used for po, xliff, xcstrings, qt, locale-config, linguas)"
     required: false
     default: ""
   target:
-    description: "Translated file or folder"
+    description: "Translated file or folder (the project folder for locale-config and linguas)"
     required: true
   strict:
     description: "Treat warnings as errors (true/false)"
@@ -33,7 +33,7 @@ runs:
         args=()
         if [ "$L10N_STRICT" = "true" ]; then args+=(--strict); fi
         case "$L10N_KIND" in
-          po|xliff|xcstrings|qt)
+          po|xliff|xcstrings|qt|locale-config|linguas)
             python3 "$L10N_SCRIPT" "${args[@]}" "$L10N_KIND" "$L10N_TARGET" ;;
           *)
             python3 "$L10N_SCRIPT" "${args[@]}" "$L10N_KIND" "$L10N_SOURCE" "$L10N_TARGET" ;;
