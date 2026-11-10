@@ -25,6 +25,7 @@ anything.
   python3 l10n_guard.py symfony    translations/messages.en.yaml  translations/messages.ja.xlf
   python3 l10n_guard.py text       en-US/full_description.txt  zh-TW/full_description.txt
   python3 l10n_guard.py locale-config  path/to/android/project
+  python3 l10n_guard.py linguas        path/to/gettext/project
 
 Exit code 0 = no errors, 1 = errors found, 2 = bad input.
 Made by MV2 of Munim, Inc. with AI agents. Licensed under the Apache License,
@@ -41,7 +42,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.20.1"
+__version__ = "0.21.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -3621,6 +3622,196 @@ def check_locale_config_dir(root):
     return check_locale_config(paths, read)
 
 
+# --- 0.21.0: linguas ------------------------------------------------------------------
+# Meson's i18n.gettext() (without a languages: list) and gettext's autotools rules build only
+# the languages named in the LINGUAS file of a po folder. A <lang>.po file beside it that
+# LINGUAS leaves out is never compiled or installed, and nothing warns. The rule comes from a
+# pre-registered census of the source repositories of Flathub apps: 51 of 526 repositories
+# whose build reads LINGUAS (9.7%) left translations out, and 10 of 12 hand-checked findings
+# were real. Its two misses (an archived copy under old/, a working file named
+# it_complete.po) are handled here:
+# https://github.com/munimtechnologies/android-translation-crash-census/blob/main/linguas/RESULTS.md
+
+# Folders never read: vendored code, archived copies and build outputs.
+_LG_SKIP = frozenset(["subprojects", "vendor", "vendors", "third_party", "thirdparty",
+                      "third-party", "3rdparty", "external", "externals", "deps",
+                      "node_modules", "submodules", "old", "attic", "obsolete", "unused",
+                      "deprecated", "build", "_build", "builddir"])
+# A .po file name that is a locale: language, optional Script, optional REGION or UN M.49
+# number, optional @modifier (pt_BR, zh_Hant, es_419, sr@latin, ca@valencia).
+_LG_STEM_RE = re.compile(
+    r"^([a-z]{2,3})(?:[_-][A-Z][a-z]{3})?(?:[_-](?:[A-Za-z]{2}|[0-9]{3}))?(?:@[A-Za-z]+)?$")
+_LG_GETTEXT_RE = re.compile(r"\bgettext\s*\(")
+_LG_LANGUAGES_RE = re.compile(r"\blanguages\s*:")
+_LG_AUTOTOOLS_RE = re.compile(
+    r"\b(?:AM_GNU_GETTEXT|IT_PROG_INTLTOOL|AC_PROG_INTLTOOL|AM_GLIB_GNU_GETTEXT)")
+
+
+def _lg_language(stem):
+    """Language of a .po file name such as pt_BR, sr@latin or zh_Hant, or None when the name
+    is not a locale (it_complete, en@quot, messages, xx)."""
+    m = _LG_STEM_RE.match(stem)
+    if not m or stem.endswith(("@quot", "@boldquot")):
+        return None
+    lang = m.group(1)
+    if len(lang) == 2 and lang not in _LC_ISO639_1 and lang not in _LC_LEGACY:
+        return None
+    return lang
+
+
+def _lg_meson_linguas(text):
+    """Languages as Meson reads LINGUAS: lines starting with '#' are skipped and the other
+    lines are split on whitespace."""
+    out = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            out.extend(line.split())
+    return out
+
+
+def _lg_gnu_linguas(text):
+    """Languages as gettext's po.m4 reads LINGUAS: '#' starts a comment anywhere on a line."""
+    out = []
+    for line in text.splitlines():
+        out.extend(line.split("#", 1)[0].split())
+    return out
+
+
+def _lg_build(meson_text, configure_texts):
+    """'meson' when the folder's meson.build calls gettext() without languages: (so Meson
+    reads LINGUAS), 'meson-languages' when it passes languages:, 'autotools' when
+    configure.ac uses gettext's or intltool's macros, else None."""
+    if meson_text is not None and _LG_GETTEXT_RE.search(meson_text):
+        return "meson-languages" if _LG_LANGUAGES_RE.search(meson_text) else "meson"
+    if any(_LG_AUTOTOOLS_RE.search(t) for t in configure_texts):
+        return "autotools"
+    return None
+
+
+def _lg_translated(data):
+    """(translated, messages) of a .po file as msgfmt compiles it by default: messages with a
+    msgid that are not obsolete and not fuzzy and have text in msgstr (any plural form)."""
+    done = total = 0
+    for e in parse_po(data.decode("utf-8", "replace")):
+        if e["obsolete"] or not e["msgid"]:
+            continue
+        total += 1
+        if "fuzzy" in e["flags"]:
+            continue
+        if e["msgstr"] or any(v for v in e["msgstr_plural"].values()):
+            done += 1
+    return done, total
+
+
+def _lg_skipped(folder):
+    return any(x.lower() in _LG_SKIP or x.startswith(".") for x in folder.split("/") if x)
+
+
+def check_linguas(paths, read):
+    """Warnings for gettext po folders whose LINGUAS file decides which languages are built
+    (Meson's i18n.gettext() without languages:, or gettext's autotools rules):
+    linguas-unlisted (a <lang>.po file with translated messages that LINGUAS leaves out, so
+    it is never compiled or installed) and linguas-missing (a listed language with no .po
+    file beside LINGUAS). paths: every file of a project, relative and '/'-separated;
+    read(path) returns its bytes or None. Returns (problems, stats)."""
+    paths = sorted(p.replace("\\", "/") for p in paths)
+    pset = set(paths)
+    by_dir = {}
+    for p in paths:
+        d, _, name = p.rpartition("/")
+        by_dir.setdefault(d, set()).add(name)
+    problems = []
+    stats = {"po folders checked": 0, "po folders skipped": 0, "untranslated files skipped": 0}
+    for d in sorted(by_dir):
+        names = by_dir[d]
+        if "LINGUAS" not in names or _lg_skipped(d):
+            continue
+        po = dict((n[:-3], n) for n in sorted(names) if n.endswith(".po") and len(n) > 3)
+        if not po:
+            continue
+        prefix = d + "/" if d else ""
+        meson = read(prefix + "meson.build") if prefix + "meson.build" in pset else None
+        confs = []
+        for base in (d.rpartition("/")[0], ""):
+            for n in ("configure.ac", "configure.in"):
+                p = base + "/" + n if base else n
+                if p in pset and p not in confs:
+                    confs.append(p)
+        conf_texts = []
+        for p in confs:
+            data = read(p)
+            if data is not None:
+                conf_texts.append(data.decode("utf-8", "replace"))
+        build = _lg_build(None if meson is None else meson.decode("utf-8", "replace"),
+                          conf_texts)
+        linguas = read(prefix + "LINGUAS")
+        if build not in ("meson", "autotools") or linguas is None:
+            stats["po folders skipped"] += 1
+            continue
+        stats["po folders checked"] += 1
+        text = linguas.decode("utf-8-sig", "replace")
+        listed = _lg_meson_linguas(text) if build == "meson" else _lg_gnu_linguas(text)
+        listed_set = set(listed)
+        rel = prefix + "LINGUAS"
+        tool = "Meson" if build == "meson" else "gettext's build rules"
+        spelled = {}
+        for t in listed:
+            spelled.setdefault(t.lower().replace("-", "_"), t)
+        for stem in sorted(po):
+            if stem in listed_set or _lg_language(stem) is None:
+                continue
+            data = read(prefix + po[stem])
+            if data is None:
+                continue
+            done, total = _lg_translated(data)
+            if not done:
+                stats["untranslated files skipped"] += 1
+                continue
+            same = spelled.get(stem.lower().replace("-", "_"))
+            if same:
+                fix = ("%s lists '%s', and the name must match the file name exactly"
+                       % (rel, same))
+            else:
+                fix = "add '%s' to %s if the translation is ready" % (stem, rel)
+            problems.append(issue(
+                WARNING, "linguas-unlisted",
+                "%s%s has %d of %d messages translated, but %s does not list '%s', so %s never "
+                "compiles or installs it; %s" % (prefix, po[stem], done, total, rel, stem, tool,
+                                                 fix), stem))
+        for lang in sorted(listed_set):
+            if lang not in po:
+                problems.append(issue(
+                    WARNING, "linguas-missing",
+                    "%s lists '%s', but there is no %s%s.po beside it" % (rel, lang, prefix, lang),
+                    lang))
+    return problems, stats
+
+
+def check_linguas_dir(root):
+    """check_linguas() on a project folder."""
+    if not os.path.isdir(root):
+        raise OSError("not a folder: %s" % root)
+    paths = []
+    for base, dirs, names in os.walk(root):
+        rel = os.path.relpath(base, root).replace(os.sep, "/")
+        rel = "" if rel == "." else rel + "/"
+        dirs[:] = sorted(d for d in dirs if not _lg_skipped(d))
+        paths.extend(rel + n for n in names)
+
+    def read(p):
+        fp = os.path.join(root, *p.split("/"))
+        try:
+            if os.path.getsize(fp) > 5000000:
+                return None
+            with open(fp, "rb") as fh:
+                return fh.read()
+        except OSError:
+            return None
+
+    return check_linguas(paths, read)
+
+
 def _script_maps(kind, source_path, target_path):
     """{key: text} of both files of a kind in _SCRIPT_KINDS, for check_script."""
     readers = {
@@ -3676,6 +3867,8 @@ def run(argv=None):
         p.add_argument("file")
     p = sub.add_parser("locale-config")
     p.add_argument("dir")
+    p = sub.add_parser("linguas")
+    p.add_argument("dir")
     args = parser.parse_args(argv)
 
     stats = None
@@ -3710,6 +3903,8 @@ def run(argv=None):
                                   args.locale or args.target)
         elif args.kind == "locale-config":
             problems, stats = check_locale_config_dir(args.dir)
+        elif args.kind == "linguas":
+            problems, stats = check_linguas_dir(args.dir)
         elif args.kind == "xliff":
             problems, stats = check_xliff(_read(args.file))
         elif args.kind == "xcstrings":

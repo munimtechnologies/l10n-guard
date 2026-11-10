@@ -215,6 +215,22 @@ exactly these.
   and for languages with a catalog outside `res/`. Files named `donottranslate*.xml` are left
   out of the counts, as Android Lint treats them
   ([0.20.1 check](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/l10n-guard-0201/RESULTS.md)).
+- **gettext LINGUAS** (0.21.0, new `linguas` kind, codes `linguas-unlisted`,
+  `linguas-missing`): Meson's `i18n.gettext()` (without `languages:`) and gettext's autotools
+  rules build only the languages listed in the `LINGUAS` file of a po folder, so a translated
+  `<lang>.po` beside it that `LINGUAS` leaves out is never compiled or installed, and nothing
+  warns. `l10n-guard linguas <project folder>` reports such files (`linguas-unlisted`, with how
+  many messages are translated) and listed languages with no `.po` file (`linguas-missing`).
+  It reads `LINGUAS` the way each build does (Meson skips lines starting with `#`; gettext
+  treats `#` as a comment anywhere) and skips folders with an explicit `languages:` list,
+  vendored and archived folders (`subprojects/`, `old/`...), file names that are not locales
+  (`it_complete.po`, `en@quot.po`) and files with no translated message. Both are warnings;
+  use `--strict` to fail a CI step. GNOME's translation platform already warns its
+  translators about unlisted files; `linguas` brings the check to any repository and CI. In a
+  pre-registered census of Flathub apps' source repositories, 51 of 526 whose build reads
+  `LINGUAS` left translations out
+  ([census](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/linguas/RESULTS.md),
+  [0.21.0 check](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/l10n-guard-0210/RESULTS.md)).
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -286,6 +302,7 @@ python3 l10n_guard.py md         README.md README.ja.md
 python3 l10n_guard.py dir        site site/ja
 python3 l10n_guard.py text       fastlane/metadata/android/en-US/full_description.txt fastlane/metadata/android/zh-TW/full_description.txt
 python3 l10n_guard.py locale-config  .   # an Android project folder: per-app language lists
+python3 l10n_guard.py linguas        .   # a gettext project: .po files po/LINGUAS leaves out
 python3 l10n_guard.py --locale zh-Hant json en.json zh.json   # when the path doesn't name the language
 python3 l10n_guard.py --json --strict json en.json fr.json   # options go before the kind
 ```
@@ -314,7 +331,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.20.1
+- uses: munimtechnologies/l10n-guard@v0.21.0
   with:
     kind: json
     source: locales/en.json
@@ -325,17 +342,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.20.1
+- uses: munimtechnologies/l10n-guard@v0.21.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.20.1
+- uses: munimtechnologies/l10n-guard@v0.21.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.20.1
+- uses: munimtechnologies/l10n-guard@v0.21.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -344,20 +361,21 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.20.1
+- uses: munimtechnologies/l10n-guard@v0.21.0
   with:
     kind: dir
     source: docs
     target: docs/de
 ```
 
-The Action takes a source and a target, so the `locale-config` kind runs as a plain step for now:
+The Action takes a source and a target, so the `locale-config` and `linguas` kinds run as a plain step for now:
 
 ```yaml
 - uses: actions/checkout@v4
 - run: |
-    pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.20.1"
+    pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.21.0"
     l10n-guard --strict locale-config .
+    l10n-guard --strict linguas .
 ```
 
 ## Install with pip or pre-commit
@@ -366,7 +384,7 @@ The Action takes a source and a target, so the `locale-config` kind runs as a pl
 `l10n-guard` command (pip needs Python 3.9 or newer for this; the file itself still runs on 3.8):
 
 ```sh
-pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.20.1"
+pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.21.0"
 l10n-guard android values/strings.xml values-fr/strings.xml
 ```
 
@@ -379,7 +397,7 @@ whole locale folder.
 ```yaml
 repos:
   - repo: https://github.com/munimtechnologies/l10n-guard
-    rev: v0.20.1
+    rev: v0.21.0
     hooks:
       - id: l10n-guard
         name: l10n-guard (de)

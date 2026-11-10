@@ -1,10 +1,10 @@
 ---
 name: l10n-guard
-description: Check a translated file against its source for the mistakes that break software - lost or renamed placeholders ({name}, %s, %1$d, :attribute), broken markup, Android apostrophes that fail the build, translations that crash Java's String.format, look-alike percent signs and braces (٪ ％ ｛ ｝), Simplified characters in Traditional Chinese, invisible characters, misfiled Android translation folders, and Android per-app language lists (locales_config.xml) that drift from the shipped translations. Use after you write, machine-translate or edit a locale file, review a translation pull request, add a language to an Android app, or see raw placeholders or a crash in one language. Covers JSON (i18next, vue-i18n, next-intl, FormatJS), gettext .po, Android, Apple .strings/.xcstrings, XLIFF, Flutter .arb, Java .properties, .NET .resx, Qt .ts, Laravel, Rails, Symfony, HTML and Markdown. One Python file, standard library only; reads local files and sends nothing anywhere.
+description: Check a translated file against its source for the mistakes that break software - lost or renamed placeholders ({name}, %s, %1$d, :attribute), broken markup, Android apostrophes that fail the build, translations that crash Java's String.format, look-alike percent signs and braces (٪ ％ ｛ ｝), Simplified characters in Traditional Chinese, invisible characters, misfiled Android translation folders, and Android per-app language lists (locales_config.xml) that drift from the shipped translations, and gettext .po files that po/LINGUAS leaves out so Meson or autotools never builds them. Use after you write, machine-translate or edit a locale file, review a translation pull request, add a language to an Android app, or see raw placeholders or a crash in one language. Covers JSON (i18next, vue-i18n, next-intl, FormatJS), gettext .po, Android, Apple .strings/.xcstrings, XLIFF, Flutter .arb, Java .properties, .NET .resx, Qt .ts, Laravel, Rails, Symfony, HTML and Markdown. One Python file, standard library only; reads local files and sends nothing anywhere.
 license: Apache-2.0
 metadata:
   author: MV2 of Munim, Inc.
-  version: "0.20.1"
+  version: "0.21.0"
   source: https://github.com/munimtechnologies/l10n-guard
 ---
 
@@ -22,7 +22,7 @@ Run it on every translation file you create or change, before you commit or open
 ## Steps
 
 1. **Get the tool** (pinned release; pick one):
-   - `pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.20.1"` gives an
+   - `pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.21.0"` gives an
      `l10n-guard` command (Python 3.9+).
    - Or use the single file `l10n_guard.py` from that release with `python3 l10n_guard.py ...`
      (Python 3.8+). If the project already vendors `l10n_guard.py` or runs the GitHub Action or
@@ -36,6 +36,7 @@ Run it on every translation file you create or change, before you commit or open
    | gettext | `l10n-guard po locale/pl/LC_MESSAGES/messages.po` (one file) |
    | Android | `l10n-guard android app/src/main/res/values/strings.xml app/src/main/res/values-fr/strings.xml` |
    | Android per-app language list (`android:localeConfig`) | `l10n-guard locale-config .` (a project or module folder) |
+   | gettext built by Meson or autotools (`po/LINGUAS`) | `l10n-guard linguas .` (a project folder) |
    | Apple | `l10n-guard strings en.lproj/Localizable.strings de.lproj/Localizable.strings`; `l10n-guard xcstrings Localizable.xcstrings` |
    | XLIFF 1.2/2.0 (Weblate, Crowdin, Angular, Xcode exports) | `l10n-guard xliff src/locale/messages.de.xlf` |
    | Flutter | `l10n-guard arb lib/l10n/app_en.arb lib/l10n/app_ja.arb` |
@@ -85,6 +86,11 @@ Run it on every translation file you create or change, before you commit or open
      translation in `res/`): **ignore it in Flutter, React Native and web-view apps**, whose text
      lives outside `res/` (for example `lib/l10n/app_az.arb`); otherwise ask whether to remove the
      line or add the translation. `locale-config-tag` (`pt-rBR`): write the tag as `pt-BR`.
+   - `linguas-unlisted` (a translated `po/xx.po` that `po/LINGUAS` leaves out, so it is never
+     built): adding the line is usually right, but first check that the file passes
+     `msgfmt --check` and that the language was not left out on purpose (a comment in
+     `LINGUAS`, an unfinished translation). `linguas-missing`: add the `.po` file or remove the
+     line.
    - `antonym-collision`, `reading-leak`, `java-format-type`, `qt-arg-renumbered`,
      `qt-count-missing`, `untranslated`, `missing-key`, `extra-key`: report.
    - In `dir` mode a `no-source` warning means a translated file has no source file next to it.
@@ -96,11 +102,11 @@ Run it on every translation file you create or change, before you commit or open
 
 ## CI options (when the user wants it enforced)
 
-- GitHub Action: `uses: munimtechnologies/l10n-guard@v0.20.1` with `kind`, `source`, `target`
+- GitHub Action: `uses: munimtechnologies/l10n-guard@v0.21.0` with `kind`, `source`, `target`
   (single-file kinds `po`, `xliff`, `xcstrings`, `qt` take only `target`). For `locale-config`,
-  use a plain step instead: `pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.20.1"`
-  then `l10n-guard --strict locale-config .`.
-- pre-commit: repo `https://github.com/munimtechnologies/l10n-guard`, `rev: v0.20.1`, hook id
+  use a plain step instead: `pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.21.0"`
+  then `l10n-guard --strict locale-config .` (the `linguas` kind runs the same way).
+- pre-commit: repo `https://github.com/munimtechnologies/l10n-guard`, `rev: v0.21.0`, hook id
   `l10n-guard`, `args: [json, locales/en.json, locales/de.json]`, one hook entry per pair (or the
   `dir` kind for a folder).
 
@@ -117,6 +123,8 @@ Run it on every translation file you create or change, before you commit or open
   Android Lint does. In the 0.19.0 test 31 of 36 sampled findings were real; the misses were
   phantoms in apps whose text isn't in `res/` and one folder of English copies
   ([results](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/l10n-guard-0190/RESULTS.md)).
+- `linguas` reads `LINGUAS` as Meson and gettext's autotools rules do but does not run the
+  build, and it cannot tell a translation left out on purpose from a forgotten one.
 - `java-format` was measured against OpenJDK 21's `Formatter` on 1,262,958 translated Android
   strings from F-Droid apps: precision 1.0 and recall 0.98 for errors
   ([census](https://github.com/munimtechnologies/android-translation-crash-census)).
