@@ -208,9 +208,13 @@ exactly these.
   14 of 16 sampled apps and 31 of 36 sampled findings to be real
   ([results](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/l10n-guard-0190/RESULTS.md),
   [census](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/locale-config/RESULTS.md)).
-  Known limits from that test: **ignore phantom warnings in apps whose text isn't in `res/`**
-  (Flutter `.arb`, React Native, web-view apps), and know that a folder's size counts every string
-  it holds, so a folder of untranslated English copies can still be reported as an orphan.
+  Since 0.20.1 the check closes the two gaps that test found. A string counts as translated
+  only when it differs from the default text or keeps a one-word or wordless default (`OK`,
+  `%1$s`), so a folder of untranslated English copies is no longer an orphan; and phantom
+  checks are skipped in Flutter and JavaScript apps (React Native, Expo, Capacitor, Cordova)
+  and for languages with a catalog outside `res/`. Files named `donottranslate*.xml` are left
+  out of the counts, as Android Lint treats them
+  ([0.20.1 check](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/l10n-guard-0201/RESULTS.md)).
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -310,7 +314,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.19.0
+- uses: munimtechnologies/l10n-guard@v0.20.1
   with:
     kind: json
     source: locales/en.json
@@ -321,17 +325,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.19.0
+- uses: munimtechnologies/l10n-guard@v0.20.1
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.19.0
+- uses: munimtechnologies/l10n-guard@v0.20.1
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.19.0
+- uses: munimtechnologies/l10n-guard@v0.20.1
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -340,7 +344,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.19.0
+- uses: munimtechnologies/l10n-guard@v0.20.1
   with:
     kind: dir
     source: docs
@@ -352,7 +356,7 @@ The Action takes a source and a target, so the `locale-config` kind runs as a pl
 ```yaml
 - uses: actions/checkout@v4
 - run: |
-    pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.19.0"
+    pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.20.1"
     l10n-guard --strict locale-config .
 ```
 
@@ -362,7 +366,7 @@ The Action takes a source and a target, so the `locale-config` kind runs as a pl
 `l10n-guard` command (pip needs Python 3.9 or newer for this; the file itself still runs on 3.8):
 
 ```sh
-pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.19.0"
+pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.20.1"
 l10n-guard android values/strings.xml values-fr/strings.xml
 ```
 
@@ -375,7 +379,7 @@ whole locale folder.
 ```yaml
 repos:
   - repo: https://github.com/munimtechnologies/l10n-guard
-    rev: v0.19.0
+    rev: v0.20.1
     hooks:
       - id: l10n-guard
         name: l10n-guard (de)

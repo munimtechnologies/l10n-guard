@@ -4,7 +4,7 @@ description: Check a translated file against its source for the mistakes that br
 license: Apache-2.0
 metadata:
   author: MV2 of Munim, Inc.
-  version: "0.19.0"
+  version: "0.20.1"
   source: https://github.com/munimtechnologies/l10n-guard
 ---
 
@@ -22,7 +22,7 @@ Run it on every translation file you create or change, before you commit or open
 ## Steps
 
 1. **Get the tool** (pinned release; pick one):
-   - `pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.19.0"` gives an
+   - `pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.20.1"` gives an
      `l10n-guard` command (Python 3.9+).
    - Or use the single file `l10n_guard.py` from that release with `python3 l10n_guard.py ...`
      (Python 3.8+). If the project already vendors `l10n_guard.py` or runs the GitHub Action or
@@ -96,11 +96,11 @@ Run it on every translation file you create or change, before you commit or open
 
 ## CI options (when the user wants it enforced)
 
-- GitHub Action: `uses: munimtechnologies/l10n-guard@v0.19.0` with `kind`, `source`, `target`
+- GitHub Action: `uses: munimtechnologies/l10n-guard@v0.20.1` with `kind`, `source`, `target`
   (single-file kinds `po`, `xliff`, `xcstrings`, `qt` take only `target`). For `locale-config`,
-  use a plain step instead: `pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.19.0"`
+  use a plain step instead: `pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.20.1"`
   then `l10n-guard --strict locale-config .`.
-- pre-commit: repo `https://github.com/munimtechnologies/l10n-guard`, `rev: v0.19.0`, hook id
+- pre-commit: repo `https://github.com/munimtechnologies/l10n-guard`, `rev: v0.20.1`, hook id
   `l10n-guard`, `args: [json, locales/en.json, locales/de.json]`, one hook entry per pair (or the
   `dir` kind for a folder).
 
@@ -111,10 +111,11 @@ Run it on every translation file you create or change, before you commit or open
   not detected.
 - `folder-script` covers only languages written in one script; Serbian, Uzbek, Azerbaijani,
   Punjabi, Kurdish, Mongolian and Sindhi folders are skipped.
-- `locale-config` sizes a translation by the strings a folder holds, untranslated copies
-  included, and reads only Android `res/` folders. In its pre-registered test 31 of 36 sampled
-  findings were real; the misses were phantoms in apps whose text isn't in `res/` and one folder
-  of English copies
+- `locale-config` reads only Android `res/` folders. Since 0.20.1 it counts a string as
+  translated only when it differs from the default (or keeps a one-word default such as `OK`),
+  skips phantom checks in Flutter and JavaScript apps, and leaves `donottranslate*.xml` out, as
+  Android Lint does. In the 0.19.0 test 31 of 36 sampled findings were real; the misses were
+  phantoms in apps whose text isn't in `res/` and one folder of English copies
   ([results](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/l10n-guard-0190/RESULTS.md)).
 - `java-format` was measured against OpenJDK 21's `Formatter` on 1,262,958 translated Android
   strings from F-Droid apps: precision 1.0 and recall 0.98 for errors

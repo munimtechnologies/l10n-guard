@@ -75,7 +75,9 @@ class ReadmeInstallTest(unittest.TestCase):
         self.text = text
 
     def test_pip_line_names_this_version(self):
-        self.assertEqual(re.findall(r"l10n-guard@v([\d.]+)\"", self.text), [g.__version__])
+        found = re.findall(r"l10n-guard@v([\d.]+)\"", self.text)
+        self.assertTrue(found)
+        self.assertEqual(set(found), {g.__version__})
 
     def test_hook_rev_names_this_version(self):
         self.assertEqual(re.findall(r"rev: v([\d.]+)", self.text), [g.__version__])

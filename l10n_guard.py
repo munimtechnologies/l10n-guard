@@ -41,7 +41,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.19.0"
+__version__ = "0.20.1"
 
 ERROR = "error"
 WARNING = "warning"
@@ -3143,6 +3143,112 @@ def _lc_values_files(paths):
     return files
 
 
+# --- 0.20.0: what counts as translated, and apps whose text is not in res/ ----------------
+# The hand check of 0.19.0 found two gaps: a folder of untranslated English copies counted as
+# a translation (Crowdin and Weblate exports fill missing strings with the source text), and
+# phantom warnings for Flutter, React Native and other apps whose interface text lives in
+# another catalog format:
+# https://github.com/munimtechnologies/android-translation-crash-census/blob/main/l10n-guard-0190/RESULTS.md
+_LC_LETTERS2_RE = re.compile(r"[^\W\d_]{2,}")
+_LC_CATALOG_EXT = frozenset([".arb", ".json", ".po", ".yaml", ".yml", ".properties", ".ftl",
+                             ".xlf", ".xliff", ".ts", ".js", ".mjs", ".lang", ".ini", ".toml"])
+_LC_CATALOG_DIR_EXT = frozenset([".arb", ".json", ".po", ".yaml", ".yml", ".properties",
+                                 ".ftl", ".xlf", ".xliff"])
+_LC_CATALOG_PREFIX_RE = re.compile(
+    r"^(?:app|intl|messages|strings|lang|locale|translations?|i18n)[_-]")
+_LC_CATALOG_NAME_RE = re.compile(r"^([a-z]{2,3})(?:[-_](?:[A-Za-z]{4}|[A-Za-z]{2}|[0-9]{3}))*$")
+_LC_CATALOG_SKIP = frozenset(["fastlane", "metadata"])
+
+
+def _lc_count(tr, base):
+    """(counted, differ) for one translated values file against its default file ({name:
+    text} each). differ: strings whose text differs from the default. counted also takes the
+    strings left equal to a default that is one word or has no word ('OK', 'Wi-Fi', '%1$s'),
+    which translations often keep; a sentence left in the default language is an
+    untranslated copy and is not counted."""
+    counted = differ = 0
+    for name, text in tr.items():
+        if name not in base:
+            continue
+        if text != base[name]:
+            differ += 1
+            counted += 1
+        elif len(base[name].split()) <= 1 or not _LC_LETTERS2_RE.search(base[name]):
+            counted += 1
+    return counted, differ
+
+
+def _lc_other_ui(mod, paths):
+    """Why the module's interface text is probably not in Android's res/ folders, or '': the
+    module sits in the android/ folder of a Flutter project (pubspec.yaml) or of a JavaScript
+    project (package.json: React Native, Expo, Capacitor, Cordova), or the project ships
+    Flutter .arb catalogs."""
+    have = set(paths)
+    parts = mod.split("/") if mod else []
+    for i in range(len(parts) - 1, -1, -1):
+        if parts[i] != "android":
+            continue
+        pre = "/".join(parts[:i] + [""]) if i else ""
+        if pre + "pubspec.yaml" in have:
+            return "Flutter app (%spubspec.yaml); its text is not in res/" % pre
+        if pre + "package.json" in have:
+            return ("JavaScript app (%spackage.json: React Native, Expo, Capacitor or Cordova); "
+                    "its text is not in res/" % pre)
+    for p in paths:
+        if p.endswith(".arb"):
+            return "Flutter .arb catalogs (%s); the text is not in res/" % p
+    return ""
+
+
+def _lc_catalog_langs(paths):
+    """{language: first path} of translation catalogs outside Android's res/ folders: files
+    named with a language (fr.json, app_de.arb, messages_pt_BR.properties), files in a folder
+    named with one (locales/ja/translation.json, de/LC_MESSAGES/app.po, moko-resources
+    MR/es/strings.xml) and values-xx folders outside res/ (Compose Multiplatform). Store
+    listings (fastlane, metadata folders) are not catalogs."""
+    found = {}
+    for p in paths:
+        parts = p.split("/")
+        if any(x in _LC_CATALOG_SKIP for x in parts[:-1]):
+            continue
+        stem, dot, ext = parts[-1].rpartition(".")
+        ext = ("." + ext.lower()) if dot else ""
+        langs = []
+        if ext in _LC_CATALOG_EXT:
+            m = _LC_CATALOG_NAME_RE.match(_LC_CATALOG_PREFIX_RE.sub("", stem, count=1))
+            if m:
+                langs.append(m.group(1))
+        if len(parts) >= 2:
+            d = parts[-2]
+            if d == "LC_MESSAGES" and len(parts) >= 3:
+                d = parts[-3]
+            if ext in _LC_CATALOG_DIR_EXT or (ext == ".xml" and len(parts) >= 3
+                                               and parts[-3] == "MR"):
+                m = _LC_CATALOG_NAME_RE.match(d)
+                if m:
+                    langs.append(m.group(1))
+            if (ext == ".xml" and d.startswith("values-")
+                    and (len(parts) < 3 or parts[-3] != "res")):
+                lang = _lc_parse_dir(d)
+                if lang:
+                    langs.append(lang)
+        for lang in langs:
+            found.setdefault(_lc_lang(lang), p)
+    return found
+
+
+# --- 0.20.1: files Android Lint treats as untranslatable -----------------------------------
+# Android Lint's MissingTranslation check treats every string in a values file whose name
+# starts with "donottranslate" as translatable="false". The locale-config check now leaves
+# those files out of a module's string count and out of each translation's count. Before,
+# an alarm clock with 126 fixed strings in donottranslate.xml held its near-complete Thai
+# and Catalan folders to a higher bar, and they were no longer reported as orphans:
+# https://github.com/munimtechnologies/android-translation-crash-census/blob/main/l10n-guard-0200/RESULTS.md
+def _lc_dnt(name):
+    """True for a values file that Android Lint treats as untranslatable (donottranslate*.xml)."""
+    return name.startswith("donottranslate")
+
+
 def _lc_coverage(paths, read):
     """Returns (folders, files, strings): folders is {res_dir: {"default": n, "locales":
     {folder: (lang, translated)}}} for every translation folder that shares a file name with
@@ -3163,15 +3269,19 @@ def _lc_coverage(paths, read):
             continue
         lang = _lc_parse_dir(d)
         default_names = files.get((res_dir, "values"), set())
-        shared = sorted(names & default_names)
+        shared = sorted(fn for fn in names & default_names if not _lc_dnt(fn))
         if not lang or not shared:
             continue
         if res_dir not in folders:
             folders[res_dir] = {"default": sum(len(strings(res_dir, "values", fn, True))
-                                               for fn in sorted(default_names)), "locales": {}}
-        n = sum(len(set(strings(res_dir, d, fn, False)) & set(strings(res_dir, "values", fn, True)))
-                for fn in shared)
+                                               for fn in sorted(default_names)
+                                               if not _lc_dnt(fn)), "locales": {},
+                               "differ": {}}
+        counts = [_lc_count(strings(res_dir, d, fn, False), strings(res_dir, "values", fn, True))
+                  for fn in shared]
+        n = sum(c[0] for c in counts)
         folders[res_dir]["locales"][d] = (lang, n)
+        folders[res_dir]["differ"][d] = sum(c[1] for c in counts)
     return folders, files, strings
 
 
@@ -3379,18 +3489,27 @@ def _lc_one(manifest, name, paths, read, folders, files, strings, gradle, transl
                 "%s lists '%s' in resource-folder spelling; locale-config names are language "
                 "tags, such as '%s-%s'" % (rel, t, folder_style.group(1), folder_style.group(2)),
                 lang))
-    if not default:
+    other_ui = _lc_other_ui(mod, paths)
+    if other_ui:
+        rep["phantoms"] = "skipped: " + other_ui
+    elif not default:
         rep["phantoms"] = "skipped: default language not English and not identified"
     else:
+        elsewhere = _lc_catalog_langs(paths)
         for lang in sorted(listed_langs - bad - default):
             kept = translated.get(lang, set())
             if kept and (not isinstance(filt, frozenset) or lang in filt):
+                continue
+            if not kept and lang in elsewhere:
+                rep.setdefault("phantoms_elsewhere", []).append(
+                    "%s (%s)" % (lang, elsewhere[lang]))
                 continue
             if kept:
                 why = ("the build's language filter (%s) leaves its translation out of the app"
                        % ", ".join(where))
             elif lang in present:
-                why = ("its %s strings files have no translated strings"
+                why = ("its %s strings files have no translated strings "
+                       "(empty, or copies of the default text)"
                        % ", ".join(sorted(present[lang])))
             else:
                 why = "no values-%s folder in the project has translated strings" % lang
@@ -3423,7 +3542,8 @@ def _lc_one(manifest, name, paths, read, folders, files, strings, gradle, transl
             continue
         problems.append(issue(
             WARNING, "locale-config-orphan",
-            "%s has %d of this module's %d strings translated, but %s does not list '%s', so "
+            "%s has %d of this module's %d strings translated (untranslated copies of default "
+            "sentences not counted), but %s does not list '%s', so "
             "Android's per-app language setting never offers it" % (d, n, den, rel, lang), lang))
     return rep
 
@@ -3444,7 +3564,7 @@ def locale_config_lists(paths, read):
     for res_dir in folders:
         for d, (lang, n) in folders[res_dir]["locales"].items():
             present.setdefault(lang, set()).add(d)
-            if n:
+            if folders[res_dir]["differ"][d]:
                 translated.setdefault(lang, set()).add(d)
     reports = []
     for p in paths:
