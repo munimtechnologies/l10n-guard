@@ -42,7 +42,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from html.parser import HTMLParser
 
-__version__ = "0.21.1"
+__version__ = "0.22.0"
 
 ERROR = "error"
 WARNING = "warning"
@@ -3708,12 +3708,49 @@ def _lg_skipped(folder):
     return any(x.lower() in _LG_SKIP or x.startswith(".") for x in folder.split("/") if x)
 
 
+# --- 0.22.0: gettext spellings ---------------------------------------------------------
+# glibc and Python's gettext look a catalog up under the user's locale name (zh_CN, pt_BR,
+# nb_NO): '_' before the territory and the territory in capitals, compared exactly on a
+# case-sensitive file system. A catalog installed as zh_cn or pt-BR is never looked up.
+# Script codes (sr-Latn, zh_Hant) are left to a later check.
+
+
+def _lg_gettext_name(stem):
+    """The name gettext looks up for a .po file name: '_' between the parts and a two-letter
+    territory in capitals (zh_cn -> zh_CN, nb-no -> nb_NO). Script parts, UN M.49 numbers and
+    an @modifier are kept as written (sr-Latn -> sr_Latn, es_419, sr@latin)."""
+    base, at, mod = stem.partition("@")
+    parts = re.split(r"[_-]", base)
+    out = [parts[0]]
+    for p in parts[1:]:
+        out.append(p.upper() if len(p) == 2 and p.isalpha() else p)
+    return "_".join(out) + at + mod
+
+
+def _lg_has_script(stem):
+    """True when a .po file name has a four-letter script part (zh_Hant, sr-Latn)."""
+    parts = re.split(r"[_-]", stem.partition("@")[0])[1:]
+    return any(len(p) == 4 and p.isalpha() for p in parts)
+
+
+def _lg_why(stem, gt):
+    """Why a .po file name is not the name gettext looks up (gt)."""
+    parts = []
+    if "-" in stem:
+        parts.append("use '_'")
+    if gt != stem.replace("-", "_"):
+        parts.append("write the territory in capitals")
+    return "gettext locale names " + " and ".join(parts)
+
+
 def check_linguas(paths, read):
     """Warnings for gettext po folders whose LINGUAS file decides which languages are built
     (Meson's i18n.gettext() without languages:, or gettext's autotools rules):
     linguas-unlisted (a <lang>.po file with translated messages that LINGUAS leaves out, so
-    it is never compiled or installed) and linguas-missing (a listed language with no .po
-    file beside LINGUAS). paths: every file of a project, relative and '/'-separated;
+    it is never compiled or installed), linguas-missing (a listed language with no .po
+    file beside LINGUAS) and linguas-spelling (a listed language installed under a name
+    gettext never looks up, such as zh_cn or pt-BR). paths: every file of a project,
+    relative and '/'-separated;
     read(path) returns its bytes or None. Returns (problems, stats)."""
     paths = sorted(p.replace("\\", "/") for p in paths)
     pset = set(paths)
@@ -3773,11 +3810,11 @@ def check_linguas(paths, read):
             if same:
                 fix = ("%s lists '%s', and the name must match the file name exactly"
                        % (rel, same))
-            elif "-" in stem:
-                gt = stem.replace("-", "_")
-                fix = ("gettext locale names use '_', so a catalog installed as '%s' is never "
-                       "looked up; rename %s%s to %s%s.po and add '%s' to %s if the "
-                       "translation is ready" % (stem, prefix, po[stem], prefix, gt, gt, rel))
+            elif _lg_gettext_name(stem) != stem:
+                gt = _lg_gettext_name(stem)
+                fix = ("%s, so a catalog installed as '%s' is never looked up; rename %s%s to "
+                       "%s%s.po and add '%s' to %s if the translation is ready"
+                       % (_lg_why(stem, gt), stem, prefix, po[stem], prefix, gt, gt, rel))
             else:
                 fix = "add '%s' to %s if the translation is ready" % (stem, rel)
             problems.append(issue(
@@ -3790,6 +3827,17 @@ def check_linguas(paths, read):
                     WARNING, "linguas-missing",
                     "%s lists '%s', but there is no %s%s.po beside it" % (rel, lang, prefix, lang),
                     lang))
+                continue
+            gt = _lg_gettext_name(lang)
+            if (_lg_language(lang) is None or _lg_has_script(lang) or gt == lang
+                    or gt in listed_set):
+                continue
+            problems.append(issue(
+                WARNING, "linguas-spelling",
+                "%s lists '%s', so %s%s is installed as '%s', but %s, so it is never looked up "
+                "for a '%s' locale; rename %s%s to %s%s.po and list '%s' instead"
+                % (rel, lang, prefix, po[lang], lang, _lg_why(lang, gt), gt, prefix, po[lang],
+                   prefix, gt, gt), lang))
     return problems, stats
 
 

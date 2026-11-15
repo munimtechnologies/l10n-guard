@@ -231,6 +231,15 @@ exactly these.
   `LINGUAS` left translations out
   ([census](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/linguas/RESULTS.md),
   [0.21.0 check](https://github.com/munimtechnologies/android-translation-crash-census/blob/main/l10n-guard-0210/RESULTS.md)).
+- **gettext spellings** (0.22.0, code `linguas-spelling`): glibc and Python's `gettext`
+  look a catalog up under the user's locale name, such as `zh_CN` or `pt_BR`, and compare
+  it exactly, so a language listed in `LINGUAS` as `zh_cn` or `pt-BR` is compiled and
+  installed under that name but never loaded on Linux. `linguas-spelling` names the file
+  to rename and the entry to list, and `linguas-unlisted` now gives the same spelling in
+  its advice (rename `po/zh_cn.po` to `po/zh_CN.po`, rather than add `zh_cn`). Script
+  codes (`sr-Latn`, `zh_Hant`) are left to a later check. On macOS and Windows file
+  systems, which ignore case, a `zh_cn` folder may still be found.
+  ([0.22.0 check](https://github.com/munimtechnologies/android-translation-crash-census/tree/main/l10n-guard-0220))
 - **Apple `.strings` and String Catalogs**: `.strings` files in UTF-8 or UTF-16, with `/* */`
   and `//` comments, and Xcode `.xcstrings` catalogs, where every language's values, plural and
   device variations and substitutions are checked against the source language. `%@`, `%lld`
@@ -331,7 +340,7 @@ Exit code 0 means no errors, 1 means errors were found, 2 means the input couldn
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.21.1
+- uses: munimtechnologies/l10n-guard@v0.22.0
   with:
     kind: json
     source: locales/en.json
@@ -342,17 +351,17 @@ A Java bundle, an Android translation, or a single-file format (`po`, `xliff`, `
 only `target`):
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.21.1
+- uses: munimtechnologies/l10n-guard@v0.22.0
   with:
     kind: properties
     source: src/main/resources/messages.properties
     target: src/main/resources/messages_fr.properties
-- uses: munimtechnologies/l10n-guard@v0.21.1
+- uses: munimtechnologies/l10n-guard@v0.22.0
   with:
     kind: android
     source: app/src/main/res/values/strings.xml
     target: app/src/main/res/values-fr/strings.xml
-- uses: munimtechnologies/l10n-guard@v0.21.1
+- uses: munimtechnologies/l10n-guard@v0.22.0
   with:
     kind: xcstrings
     target: App/Localizable.xcstrings
@@ -361,7 +370,7 @@ only `target`):
 A whole translated folder:
 
 ```yaml
-- uses: munimtechnologies/l10n-guard@v0.21.1
+- uses: munimtechnologies/l10n-guard@v0.22.0
   with:
     kind: dir
     source: docs
@@ -372,7 +381,7 @@ Project-folder kinds (`locale-config`, `linguas`) take only `target` (since 0.21
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: munimtechnologies/l10n-guard@v0.21.1
+- uses: munimtechnologies/l10n-guard@v0.22.0
   with:
     kind: linguas
     target: .
@@ -384,7 +393,7 @@ Or run them as a plain step:
 ```yaml
 - uses: actions/checkout@v4
 - run: |
-    pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.21.1"
+    pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.22.0"
     l10n-guard --strict locale-config .
     l10n-guard --strict linguas .
 ```
@@ -395,7 +404,7 @@ Or run them as a plain step:
 `l10n-guard` command (pip needs Python 3.9 or newer for this; the file itself still runs on 3.8):
 
 ```sh
-pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.21.1"
+pip install "git+https://github.com/munimtechnologies/l10n-guard@v0.22.0"
 l10n-guard android values/strings.xml values-fr/strings.xml
 ```
 
@@ -408,7 +417,7 @@ whole locale folder.
 ```yaml
 repos:
   - repo: https://github.com/munimtechnologies/l10n-guard
-    rev: v0.21.1
+    rev: v0.22.0
     hooks:
       - id: l10n-guard
         name: l10n-guard (de)
